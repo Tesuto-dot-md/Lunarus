@@ -1,0 +1,81 @@
+import 'package:flutter/material.dart';
+import '../services/api.dart';
+import 'chat_screen.dart';
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _userController = TextEditingController(text: 'user');
+  final _urlController = TextEditingController(text: 'http://localhost:8080');
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _userController.dispose();
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final rawUrl = _urlController.text.trim();
+      final api = ApiClient(baseUrl: rawUrl);
+      final res = await api.login(username: _userController.text.trim());
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(api: api, authToken: res.token, userId: res.userId),
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Lunarus')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Server URL (пример: https://api.lunarus.ru или http://localhost:8080):'),
+            const SizedBox(height: 8),
+            TextField(controller: _urlController),
+            const SizedBox(height: 16),
+            const Text('Username:'),
+            const SizedBox(height: 8),
+            TextField(controller: _userController),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: _loading ? null : _login,
+              child: Text(_loading ? '...' : 'Войти'),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}

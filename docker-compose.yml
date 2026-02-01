@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: example
+      POSTGRES_USER: app
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./infra/livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"       # HTTP / WS
+      - "7881:7881"       # optional TCP (depends on config)
+      - "61000-61999:61000-61999/udp"
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:latest
+    network_mode: "host"
+    volumes:
+      - ./infra/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ./server
+    env_file:
+      - ./server/.env
+    volumes:
+      - ./uploads:/app/uploads
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+      - livekit
+    restart: unless-stopped
+
+volumes:
+  pgdata:
