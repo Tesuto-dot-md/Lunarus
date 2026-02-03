@@ -41,7 +41,6 @@ services:
       - ./server/.env
     volumes:
       - ./uploads:/app/uploads
-    ports:
     depends_on:
       - postgres
       - redis
