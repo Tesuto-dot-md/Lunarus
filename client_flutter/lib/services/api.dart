@@ -117,7 +117,7 @@ class ApiClient {
     return items.map(ChatMessage.fromJson).toList();
   }
 
-  Future<void> sendMessage({
+  Future<ChatMessage> sendMessage({
     required String authToken,
     required String channelId,
     required String content,
@@ -143,6 +143,17 @@ class ApiClient {
       );
     }
     if (r.statusCode != 200) throw Exception('sendMessage failed: ${r.statusCode} ${r.body}');
+    final body = r.body.trim();
+    if (body.isEmpty) {
+      // Older servers may respond empty; return a synthetic message.
+      return ChatMessage(id: '0', channelId: channelId, authorId: 'me', content: content, kind: kind, media: media, ts: DateTime.now().millisecondsSinceEpoch);
+    }
+    final j = jsonDecode(body) as Map<String, dynamic>;
+    if (j['item'] is Map) {
+      return ChatMessage.fromJson((j['item'] as Map).cast<String, dynamic>());
+    }
+    // Fallback: no item field.
+    return ChatMessage(id: '0', channelId: channelId, authorId: 'me', content: content, kind: kind, media: media, ts: DateTime.now().millisecondsSinceEpoch);
   }
 
   Future<UploadResult> uploadFile({required String authToken, required String filePath}) async {

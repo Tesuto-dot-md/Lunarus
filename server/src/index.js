@@ -12,6 +12,7 @@ import path from 'path';
 import crypto from 'crypto';
 
 const app = express();
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json());
 
@@ -98,6 +99,15 @@ function absUrl(relativePath) {
   if (!PUBLIC_BASE_URL) return relativePath;
   return `${PUBLIC_BASE_URL}${relativePath}`;
 }
+function getPublicBaseUrl(req) {
+  // Prefer explicit env, else derive from reverse-proxy headers.
+  if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL;
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  if (!host) return '';
+  return `${proto}://${host}`.replace(/\/$/, '');
+}
+
 
 // --- Routes ---
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -368,8 +378,18 @@ app.post('/voice/join', authMiddleware, async (req, res) => {
 
   const jwtToken = await at.toJwt();
 
+    // LiveKit clients must connect to a PUBLICLY reachable URL.
+  // In docker, LIVEKIT_URL is often set to an internal host (livekit/localhost) which will break clients.
+  let url = (process.env.LIVEKIT_PUBLIC_URL || process.env.LIVEKIT_URL || '').toString().replace(/\/$/, '');
+  const derived = getPublicBaseUrl(req);
+  const looksInternal = /(^|\/\/)(localhost|127\.0\.0\.1|livekit)(:|\/|$)/i.test(url);
+  if (!url || looksInternal) {
+    // LiveKit is reverse-proxied by Caddy under the SAME domain (see Caddyfile /rtc* /twirp*).
+    url = derived || PUBLIC_BASE_URL || url;
+  }
+
   res.json({
-    url: process.env.LIVEKIT_URL,
+    url,
     token: jwtToken,
     room,
   });
