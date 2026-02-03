@@ -223,6 +223,7 @@ Future<void> _selectChannel(Channel c) async {
   if (c.type == ChannelType.voice) {
     final roomName = c.room ?? c.id;
     final chatChannelId = c.linkedChatChannelId ?? c.id;
+<<<<<<< HEAD
 
     // If we're already connected (or connecting) to this voice room, don't reconnect.
     if (_voiceRoomName == roomName &&
@@ -233,6 +234,12 @@ Future<void> _selectChannel(Channel c) async {
 
     await _joinVoice(roomName: roomName, chatChannelId: chatChannelId);
     if (mounted) setState(() => _selectedChannel = c);
+=======
+    await _joinVoice(roomName: roomName, chatChannelId: chatChannelId);
+    if (mounted) {
+      setState(() => _selectedChannel = c);
+    }
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
     return;
   }
 
@@ -573,11 +580,21 @@ class _ChannelsPane extends StatelessWidget {
               const SizedBox(height: 12),
               _SectionHeader('Voice Channels'),
               for (final c in voiceChannels)
+<<<<<<< HEAD
                 _VoiceChannelTileWithPresence(
                   channel: c,
                   selected: c.id == selected.id,
                   activeRoom: voiceActiveRoom,
                   participants: voicePresence[c.room ?? c.id] ?? const [],
+=======
+                _ChannelTile(
+                  leading: Icon(
+                    voiceActiveRoom == (c.room ?? c.id) ? Icons.graphic_eq : Icons.volume_up,
+                    size: 18,
+                  ),
+                  title: c.name,
+                  selected: c.id == selected.id,
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
                   onTap: () => onSelect(c),
                 ),
             ],

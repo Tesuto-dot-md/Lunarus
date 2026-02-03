@@ -12,6 +12,7 @@ import path from 'path';
 import crypto from 'crypto';
 
 const app = express();
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json());
 
@@ -44,6 +45,19 @@ const UPLOADS_TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
 fs.mkdirSync(UPLOADS_FILES_DIR, { recursive: true });
 fs.mkdirSync(UPLOADS_TMP_DIR, { recursive: true });
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+// Multer does NOT create the destination directory automatically.
+// If it doesn't exist, uploads will fail with ENOENT.
+fs.mkdirSync(UPLOADS_TMP_DIR, { recursive: true });
+
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 const upload = multer({ dest: UPLOADS_TMP_DIR });
 app.use('/uploads', express.static(UPLOADS_FILES_DIR));
 
@@ -100,6 +114,15 @@ function absUrl(relativePath) {
   if (!PUBLIC_BASE_URL) return relativePath;
   return `${PUBLIC_BASE_URL}${relativePath}`;
 }
+function getPublicBaseUrl(req) {
+  // Prefer explicit env, else derive from reverse-proxy headers.
+  if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL;
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  if (!host) return '';
+  return `${proto}://${host}`.replace(/\/$/, '');
+}
+
 
 // --- Routes ---
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -109,6 +132,66 @@ app.post('/auth/login', (req, res) => {
   const user = { id: String(username ?? 'user'), username: String(username ?? 'user') };
   const token = signJwt({ sub: user.id, username: user.username });
   res.json({ token, user });
+});
+
+// ------------------------------------------------------------
+// Discord-like endpoints (compat layer)
+// Many clients expect /channels/:channelId/messages.
+// Internally we keep /messages?channelId=... for simplicity.
+// ------------------------------------------------------------
+
+// Получить последние сообщения канала (Discord-style)
+app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId ?? 'general');
+  const limitRaw = Number(req.query.limit ?? 50);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, limitRaw)) : 50;
+
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+
+  const r = await pool.query(
+    `SELECT id, channel_id, author_id, content, kind, media, ts
+       FROM messages
+      WHERE channel_id = $1
+      ORDER BY ts DESC
+      LIMIT $2`,
+    [channelId, limit]
+  );
+
+  // Return oldest->newest
+  const items = r.rows.map(toClientMessage).reverse();
+  res.json({ items });
+});
+
+// Отправить сообщение (Discord-style)
+app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId ?? 'general');
+  const { content = '', kind = 'text', media = null } = req.body ?? {};
+
+  const k = String(kind || 'text');
+  const allowed = new Set(['text', 'image', 'gif']);
+  if (!allowed.has(k)) return res.status(400).json({ error: 'bad kind' });
+
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+
+  const msg = {
+    channelId,
+    authorId: String(req.user?.sub),
+    content: String(content ?? ''),
+    kind: k,
+    media: media ?? null,
+    ts: Date.now(),
+  };
+
+  const r = await pool.query(
+    `INSERT INTO messages(channel_id, author_id, content, kind, media, ts)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, channel_id, author_id, content, kind, media, ts`,
+    [msg.channelId, msg.authorId, msg.content, msg.kind, msg.media, msg.ts]
+  );
+
+  const item = toClientMessage(r.rows[0]);
+  broadcast({ t: 'MESSAGE_CREATE', d: item }, (c) => c.channelId === item.channelId);
+  res.json({ ok: true, item });
 });
 
 // Получить последние сообщения канала (из Postgres)
@@ -166,10 +249,32 @@ app.post('/messages', authMiddleware, async (req, res) => {
   res.json({ ok: true, item });
 });
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 // Discord-like channel routes (compatible with client expectations)
 // GET /channels/:channelId/messages?limit=50
 app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const channelId = String(req.params.channelId);
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+=======
+// --- Compatibility routes ---
+// Some tools/clients expect Discord-like paths, e.g.:
+//   GET  /channels/:channelId/messages
+//   POST /channels/:channelId/messages
+// These routes forward to the existing /messages endpoints.
+app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId ?? 'general');
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
   const limitRaw = Number(req.query.limit ?? 50);
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, limitRaw)) : 50;
 
@@ -188,6 +293,13 @@ app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   res.json({ items });
 });
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 // POST /channels/:channelId/messages
 app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const channelId = String(req.params.channelId);
@@ -196,6 +308,21 @@ app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const allowed = new Set(['text', 'image', 'gif']);
   if (!allowed.has(k)) return res.status(400).json({ error: 'bad kind' });
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+=======
+app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId ?? 'general');
+  const { content = '', kind = 'text', media = null } = req.body ?? {};
+
+  const k = String(kind || 'text');
+  const allowed = new Set(['text', 'image', 'gif']);
+  if (!allowed.has(k)) return res.status(400).json({ error: 'bad kind' });
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
   if (!pool) return res.status(500).json({ error: 'db not configured' });
 
   const msg = {
@@ -220,7 +347,18 @@ app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   res.json({ ok: true, item });
 });
 
+<<<<<<< HEAD
 
+=======
+<<<<<<< HEAD
+
+=======
+<<<<<<< HEAD
+
+=======
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 // Загрузка изображения (multipart/form-data, поле: file)
 app.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'missing file' });
@@ -310,8 +448,18 @@ app.post('/voice/join', authMiddleware, async (req, res) => {
 
   const jwtToken = await at.toJwt();
 
+    // LiveKit clients must connect to a PUBLICLY reachable URL.
+  // In docker, LIVEKIT_URL is often set to an internal host (livekit/localhost) which will break clients.
+  let url = (process.env.LIVEKIT_PUBLIC_URL || process.env.LIVEKIT_URL || '').toString().replace(/\/$/, '');
+  const derived = getPublicBaseUrl(req);
+  const looksInternal = /(^|\/\/)(localhost|127\.0\.0\.1|livekit)(:|\/|$)/i.test(url);
+  if (!url || looksInternal) {
+    // LiveKit is reverse-proxied by Caddy under the SAME domain (see Caddyfile /rtc* /twirp*).
+    url = derived || PUBLIC_BASE_URL || url;
+  }
+
   res.json({
-    url: process.env.LIVEKIT_URL,
+    url,
     token: jwtToken,
     room,
   });
@@ -346,7 +494,27 @@ const clients = new Set();
 
 const WS_OPEN = 1; // WebSocket.OPEN
 function safeSend(ws, obj) {
+<<<<<<< HEAD
   if (ws.readyState === WS_OPEN) ws.send(JSON.stringify(obj));
+=======
+<<<<<<< HEAD
+  if (ws.readyState === WS_OPEN) ws.send(JSON.stringify(obj));
+=======
+<<<<<<< HEAD
+  if (ws.readyState === WS_OPEN) ws.send(JSON.stringify(obj));
+=======
+  // In the `ws` library, OPEN is a constant on the WebSocket class, not the instance.
+  // Using `ws.OPEN` breaks sends because it is undefined.
+  if (ws.readyState === 1 /* WebSocket.OPEN */) {
+    try {
+      ws.send(JSON.stringify(obj));
+    } catch (_) {
+      // Ignore transient socket errors.
+    }
+  }
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 }
 
 function broadcast(obj, predicate = () => true) {
