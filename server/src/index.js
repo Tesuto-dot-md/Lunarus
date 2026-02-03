@@ -35,9 +35,11 @@ const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
 // Uploads
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads';
 const UPLOADS_FILES_DIR = path.join(UPLOADS_DIR, 'files');
+const UPLOADS_TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
 fs.mkdirSync(UPLOADS_FILES_DIR, { recursive: true });
+fs.mkdirSync(UPLOADS_TMP_DIR, { recursive: true });
 
-const upload = multer({ dest: path.join(UPLOADS_DIR, 'tmp') });
+const upload = multer({ dest: UPLOADS_TMP_DIR });
 app.use('/uploads', express.static(UPLOADS_FILES_DIR));
 
 // --- Auth helpers ---
@@ -159,6 +161,61 @@ app.post('/messages', authMiddleware, async (req, res) => {
   res.json({ ok: true, item });
 });
 
+// Discord-like channel routes (compatible with client expectations)
+// GET /channels/:channelId/messages?limit=50
+app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId);
+  const limitRaw = Number(req.query.limit ?? 50);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, limitRaw)) : 50;
+
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+
+  const r = await pool.query(
+    `SELECT id, channel_id, author_id, content, kind, media, ts
+       FROM messages
+      WHERE channel_id = $1
+      ORDER BY ts DESC
+      LIMIT $2`,
+    [channelId, limit]
+  );
+
+  const items = r.rows.map(toClientMessage).reverse();
+  res.json({ items });
+});
+
+// POST /channels/:channelId/messages
+app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId);
+  const { content = '', kind = 'text', media = null } = req.body ?? {};
+  const k = String(kind || 'text');
+  const allowed = new Set(['text', 'image', 'gif']);
+  if (!allowed.has(k)) return res.status(400).json({ error: 'bad kind' });
+
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+
+  const msg = {
+    channelId,
+    authorId: String(req.user?.sub),
+    content: String(content ?? ''),
+    kind: k,
+    media: media ?? null,
+    ts: Date.now(),
+  };
+
+  const r = await pool.query(
+    `INSERT INTO messages(channel_id, author_id, content, kind, media, ts)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, channel_id, author_id, content, kind, media, ts`,
+    [msg.channelId, msg.authorId, msg.content, msg.kind, msg.media, msg.ts]
+  );
+
+  const item = toClientMessage(r.rows[0]);
+  broadcast({ t: 'MESSAGE_CREATE', d: item }, (c) => c.channelId === item.channelId);
+
+  res.json({ ok: true, item });
+});
+
+
 // Загрузка изображения (multipart/form-data, поле: file)
 app.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'missing file' });
@@ -225,17 +282,18 @@ app.get('/tenor/search', authMiddleware, async (req, res) => {
 
 // Выдать токен на вход в голосовую комнату (LiveKit)
 app.post('/voice/join', authMiddleware, async (req, res) => {
-  const room = req.body?.room || 'demo-room';
+  const room = String(req.body?.room || 'demo-room');
 
-  const identity =
-    req.user?.username ||
-    req.user?.sub ||
-    'user';
+  // LiveKit participants:
+  // - identity should be stable (use user id)
+  // - name is what UI should display (use username)
+  const identity = String(req.user?.sub || req.user?.username || 'user');
+  const name = String(req.user?.username || identity);
 
   const at = new AccessToken(
     process.env.LIVEKIT_API_KEY,
     process.env.LIVEKIT_API_SECRET,
-    { identity }
+    { identity, name }
   );
 
   at.addGrant({
@@ -261,8 +319,9 @@ const wss = new WebSocketServer({ server: httpServer, path: '/gateway' });
 // clients: { ws, userId, username, channelId }
 const clients = new Set();
 
+const WS_OPEN = 1; // WebSocket.OPEN
 function safeSend(ws, obj) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
+  if (ws.readyState === WS_OPEN) ws.send(JSON.stringify(obj));
 }
 
 function broadcast(obj, predicate = () => true) {

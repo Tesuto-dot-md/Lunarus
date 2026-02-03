@@ -94,7 +94,7 @@ class ApiClient {
 
   Future<List<ChatMessage>> getMessages({required String authToken, required String channelId}) async {
     final r = await http.get(
-      _u('/messages?channelId=$channelId'),
+      _u('/channels/$channelId/messages'),
       headers: {'authorization': 'Bearer $authToken'},
     );
     if (r.statusCode != 200) throw Exception('getMessages failed: ${r.statusCode} ${r.body}');
@@ -111,9 +111,9 @@ class ApiClient {
     Map<String, dynamic>? media,
   }) async {
     final r = await http.post(
-      _u('/messages'),
+      _u('/channels/$channelId/messages'),
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
-      body: jsonEncode({'channelId': channelId, 'content': content, 'kind': kind, 'media': media}),
+      body: jsonEncode({'content': content, 'kind': kind, 'media': media}),
     );
     if (r.statusCode != 200) throw Exception('sendMessage failed: ${r.statusCode} ${r.body}');
   }
