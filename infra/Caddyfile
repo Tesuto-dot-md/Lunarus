@@ -7,10 +7,21 @@ api.lunarus.ru {
 
   # REST API
   reverse_proxy /auth/* server:8080
+<<<<<<< HEAD
   reverse_proxy /users* server:8080
   reverse_proxy /servers* server:8080
   reverse_proxy /invites* server:8080
+=======
+
+  # Legacy path kept for compatibility with older clients
+>>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
   reverse_proxy /guilds* server:8080
+
+  # Servers (guilds) + related endpoints
+  reverse_proxy /servers* server:8080
+  reverse_proxy /invites* server:8080
+
+  # Channels + messages
   reverse_proxy /channels* server:8080
   reverse_proxy /voice/* server:8080
   reverse_proxy /upload* server:8080
