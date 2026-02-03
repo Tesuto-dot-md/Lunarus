@@ -11,7 +11,7 @@ rtc:
 
 # API keys для выдачи токенов (backend должен знать key/secret)
 keys:
-  devkey: "a3653aa6231e2e1a23bb684646b4c01708ea8fdd219d3b6e403f593cfe249782"
+  devkey: "a72fd0b3d3d5bb331e0154b34818a8fc8d2282bab51c2dc58c9a7a9502824ef7"
 
 # TURN можно подключить так (после настройки coturn):
 # turn:

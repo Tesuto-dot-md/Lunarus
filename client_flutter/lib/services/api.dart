@@ -14,17 +14,37 @@ class VoiceJoin {
   VoiceJoin({required this.url, required this.token, required this.room});
 }
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9ce6179609ead6f56427da4010dc112a7a7f1ca6
+>>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
 class ServerInfo {
   final String id;
   final String name;
   final String? icon; // emoji or url
+<<<<<<< HEAD
   final String? ownerId;
   ServerInfo({required this.id, required this.name, required this.icon, required this.ownerId});
+=======
+<<<<<<< HEAD
+  final String? ownerId;
+  ServerInfo({required this.id, required this.name, required this.icon, required this.ownerId});
+=======
+  ServerInfo({required this.id, required this.name, required this.icon});
+>>>>>>> 9ce6179609ead6f56427da4010dc112a7a7f1ca6
+>>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
 
   factory ServerInfo.fromJson(Map<String, dynamic> j) => ServerInfo(
         id: j['id'].toString(),
         name: j['name'].toString(),
         icon: (j['icon'] == null) ? null : j['icon'].toString(),
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
         ownerId: (j['ownerId'] == null) ? null : j['ownerId'].toString(),
       );
 }
@@ -43,6 +63,11 @@ class InvitePreview {
         serverName: j['serverName'].toString(),
         serverIcon: (j['serverIcon'] == null) ? null : j['serverIcon'].toString(),
         channelId: (j['channelId'] == null) ? null : j['channelId'].toString(),
+<<<<<<< HEAD
+=======
+=======
+>>>>>>> 9ce6179609ead6f56427da4010dc112a7a7f1ca6
+>>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
       );
 }
 
@@ -81,6 +106,24 @@ class ChannelInfo {
         isPrivate: (j['isPrivate'] as bool?) ?? false,
         linkedTextChannelId: (j['linkedTextChannelId'] == null) ? null : j['linkedTextChannelId'].toString(),
         room: (j['room'] == null) ? null : j['room'].toString(),
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+=======
+
+
+class VoiceParticipant {
+  final String identity;
+  final String name;
+  VoiceParticipant({required this.identity, required this.name});
+
+  factory VoiceParticipant.fromJson(Map<String, dynamic> j) => VoiceParticipant(
+        identity: (j['identity'] ?? '').toString(),
+        name: (j['name'] ?? j['identity'] ?? '').toString(),
+>>>>>>> 6f623283521c0e62b92a6d0d8af121fa4149c58d
+>>>>>>> 9ce6179609ead6f56427da4010dc112a7a7f1ca6
+>>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
       );
 }
 
@@ -163,67 +206,29 @@ class ApiClient {
   }
 
   Future<List<ChatMessage>> getMessages({required String authToken, required String channelId}) async {
-    // Prefer Discord-like endpoint, but keep legacy /messages for compatibility.
-    Future<http.Response> doGet(String path) => http.get(
-          _u(path),
-          headers: {'authorization': 'Bearer $authToken'},
-        );
-
-    http.Response r = await doGet('/channels/$channelId/messages?limit=50');
-    if (r.statusCode == 404) {
-      // Fallback to older endpoint.
-      r = await doGet('/messages?channelId=$channelId&limit=50');
-    }
-
-    if (r.statusCode != 200) {
-      throw Exception('getMessages failed: ${r.statusCode} ${r.body}');
-    }
-
-    final body = r.body.trim();
-    if (body.isEmpty) return <ChatMessage>[];
-
-    final j = jsonDecode(body) as Map<String, dynamic>;
+    final r = await http.get(
+      _u('/channels/$channelId/messages'),
+      headers: {'authorization': 'Bearer $authToken'},
+    );
+    if (r.statusCode != 200) throw Exception('getMessages failed: ${r.statusCode} ${r.body}');
+    final j = jsonDecode(r.body) as Map<String, dynamic>;
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(ChatMessage.fromJson).toList();
   }
 
-  Future<ChatMessage> sendMessage({
+  Future<void> sendMessage({
     required String authToken,
     required String channelId,
     required String content,
     String kind = 'text',
     Map<String, dynamic>? media,
   }) async {
-    Future<http.Response> doPost(String path, Map<String, dynamic> payload) => http.post(
-          _u(path),
-          headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
-          body: jsonEncode(payload),
-        );
-
-    // Prefer Discord-like endpoint.
-    http.Response r = await doPost(
-      '/channels/$channelId/messages',
-      {'content': content, 'kind': kind, 'media': media},
+    final r = await http.post(
+      _u('/channels/$channelId/messages'),
+      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+      body: jsonEncode({'content': content, 'kind': kind, 'media': media}),
     );
-    if (r.statusCode == 404) {
-      // Fallback to older endpoint.
-      r = await doPost(
-        '/messages',
-        {'channelId': channelId, 'content': content, 'kind': kind, 'media': media},
-      );
-    }
     if (r.statusCode != 200) throw Exception('sendMessage failed: ${r.statusCode} ${r.body}');
-    final body = r.body.trim();
-    if (body.isEmpty) {
-      // Older servers may respond empty; return a synthetic message.
-      return ChatMessage(id: '0', channelId: channelId, authorId: 'me', content: content, kind: kind, media: media, ts: DateTime.now().millisecondsSinceEpoch);
-    }
-    final j = jsonDecode(body) as Map<String, dynamic>;
-    if (j['item'] is Map) {
-      return ChatMessage.fromJson((j['item'] as Map).cast<String, dynamic>());
-    }
-    // Fallback: no item field.
-    return ChatMessage(id: '0', channelId: channelId, authorId: 'me', content: content, kind: kind, media: media, ts: DateTime.now().millisecondsSinceEpoch);
   }
 
   Future<UploadResult> uploadFile({required String authToken, required String filePath}) async {
@@ -303,6 +308,10 @@ class ApiClient {
     return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
   // --- Servers / Invites / Channels ---
 
   Future<ServerInfo> createServer({required String authToken, required String name, String? icon}) async {
@@ -391,6 +400,9 @@ class ApiClient {
   }
 
   Future<VoiceJoin> joinVoice({required String authToken, required String room}) async {
+=======
+Future<VoiceJoin> joinVoice({required String authToken, required String room}) async {
+>>>>>>> 9ce6179609ead6f56427da4010dc112a7a7f1ca6
     final r = await http.post(
       _u('/voice/join'),
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
@@ -399,5 +411,27 @@ class ApiClient {
     if (r.statusCode != 200) throw Exception('voice/join failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
     return VoiceJoin(url: j['url'].toString(), token: j['token'].toString(), room: j['room'].toString());
+  }
+
+  Future<List<VoiceParticipant>> getVoiceParticipants({
+    required String authToken,
+    required String room,
+  }) async {
+    final r = await http.get(
+      _u('/voice/rooms/$room/participants'),
+      headers: {'authorization': 'Bearer $authToken'},
+    );
+
+    if (r.statusCode == 200) {
+      final j = jsonDecode(r.body.isEmpty ? '{}' : r.body) as Map<String, dynamic>;
+      final items = (j['items'] as List?) ?? const [];
+      return items
+          .whereType<Map>()
+          .map((e) => VoiceParticipant.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    }
+
+    if (r.statusCode == 404) return const <VoiceParticipant>[];
+    throw Exception('getVoiceParticipants failed: ${r.statusCode} ${r.body}');
   }
 }
