@@ -35,9 +35,14 @@ const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
 // Uploads
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads';
 const UPLOADS_FILES_DIR = path.join(UPLOADS_DIR, 'files');
+const UPLOADS_TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
 fs.mkdirSync(UPLOADS_FILES_DIR, { recursive: true });
 
-const upload = multer({ dest: path.join(UPLOADS_DIR, 'tmp') });
+// Multer does NOT create the destination directory automatically.
+// If it doesn't exist, uploads will fail with ENOENT.
+fs.mkdirSync(UPLOADS_TMP_DIR, { recursive: true });
+
+const upload = multer({ dest: UPLOADS_TMP_DIR });
 app.use('/uploads', express.static(UPLOADS_FILES_DIR));
 
 // --- Auth helpers ---
@@ -102,6 +107,66 @@ app.post('/auth/login', (req, res) => {
   const user = { id: String(username ?? 'user'), username: String(username ?? 'user') };
   const token = signJwt({ sub: user.id, username: user.username });
   res.json({ token, user });
+});
+
+// ------------------------------------------------------------
+// Discord-like endpoints (compat layer)
+// Many clients expect /channels/:channelId/messages.
+// Internally we keep /messages?channelId=... for simplicity.
+// ------------------------------------------------------------
+
+// Получить последние сообщения канала (Discord-style)
+app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId ?? 'general');
+  const limitRaw = Number(req.query.limit ?? 50);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, limitRaw)) : 50;
+
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+
+  const r = await pool.query(
+    `SELECT id, channel_id, author_id, content, kind, media, ts
+       FROM messages
+      WHERE channel_id = $1
+      ORDER BY ts DESC
+      LIMIT $2`,
+    [channelId, limit]
+  );
+
+  // Return oldest->newest
+  const items = r.rows.map(toClientMessage).reverse();
+  res.json({ items });
+});
+
+// Отправить сообщение (Discord-style)
+app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId ?? 'general');
+  const { content = '', kind = 'text', media = null } = req.body ?? {};
+
+  const k = String(kind || 'text');
+  const allowed = new Set(['text', 'image', 'gif']);
+  if (!allowed.has(k)) return res.status(400).json({ error: 'bad kind' });
+
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+
+  const msg = {
+    channelId,
+    authorId: String(req.user?.sub),
+    content: String(content ?? ''),
+    kind: k,
+    media: media ?? null,
+    ts: Date.now(),
+  };
+
+  const r = await pool.query(
+    `INSERT INTO messages(channel_id, author_id, content, kind, media, ts)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, channel_id, author_id, content, kind, media, ts`,
+    [msg.channelId, msg.authorId, msg.content, msg.kind, msg.media, msg.ts]
+  );
+
+  const item = toClientMessage(r.rows[0]);
+  broadcast({ t: 'MESSAGE_CREATE', d: item }, (c) => c.channelId === item.channelId);
+  res.json({ ok: true, item });
 });
 
 // Получить последние сообщения канала (из Postgres)
@@ -262,7 +327,15 @@ const wss = new WebSocketServer({ server: httpServer, path: '/gateway' });
 const clients = new Set();
 
 function safeSend(ws, obj) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
+  // In the `ws` library, OPEN is a constant on the WebSocket class, not the instance.
+  // Using `ws.OPEN` breaks sends because it is undefined.
+  if (ws.readyState === 1 /* WebSocket.OPEN */) {
+    try {
+      ws.send(JSON.stringify(obj));
+    } catch (_) {
+      // Ignore transient socket errors.
+    }
+  }
 }
 
 function broadcast(obj, predicate = () => true) {

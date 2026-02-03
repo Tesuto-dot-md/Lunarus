@@ -93,12 +93,26 @@ class ApiClient {
   }
 
   Future<List<ChatMessage>> getMessages({required String authToken, required String channelId}) async {
-    final r = await http.get(
-      _u('/messages?channelId=$channelId'),
-      headers: {'authorization': 'Bearer $authToken'},
-    );
-    if (r.statusCode != 200) throw Exception('getMessages failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
+    // Prefer Discord-like endpoint, but keep legacy /messages for compatibility.
+    Future<http.Response> doGet(String path) => http.get(
+          _u(path),
+          headers: {'authorization': 'Bearer $authToken'},
+        );
+
+    http.Response r = await doGet('/channels/$channelId/messages?limit=50');
+    if (r.statusCode == 404) {
+      // Fallback to older endpoint.
+      r = await doGet('/messages?channelId=$channelId&limit=50');
+    }
+
+    if (r.statusCode != 200) {
+      throw Exception('getMessages failed: ${r.statusCode} ${r.body}');
+    }
+
+    final body = r.body.trim();
+    if (body.isEmpty) return <ChatMessage>[];
+
+    final j = jsonDecode(body) as Map<String, dynamic>;
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(ChatMessage.fromJson).toList();
   }
@@ -110,11 +124,24 @@ class ApiClient {
     String kind = 'text',
     Map<String, dynamic>? media,
   }) async {
-    final r = await http.post(
-      _u('/messages'),
-      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
-      body: jsonEncode({'channelId': channelId, 'content': content, 'kind': kind, 'media': media}),
+    Future<http.Response> doPost(String path, Map<String, dynamic> payload) => http.post(
+          _u(path),
+          headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+          body: jsonEncode(payload),
+        );
+
+    // Prefer Discord-like endpoint.
+    http.Response r = await doPost(
+      '/channels/$channelId/messages',
+      {'content': content, 'kind': kind, 'media': media},
     );
+    if (r.statusCode == 404) {
+      // Fallback to older endpoint.
+      r = await doPost(
+        '/messages',
+        {'channelId': channelId, 'content': content, 'kind': kind, 'media': media},
+      );
+    }
     if (r.statusCode != 200) throw Exception('sendMessage failed: ${r.statusCode} ${r.body}');
   }
 
