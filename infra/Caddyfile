@@ -2,16 +2,18 @@ api.lunarus.ru {
 
   encode zstd gzip
 
-  # Backend API
+  # WebSocket gateway
+  reverse_proxy /gateway server:8080
+
+  # REST API
   reverse_proxy /auth/* server:8080
   reverse_proxy /guilds* server:8080
   reverse_proxy /channels* server:8080
   reverse_proxy /voice/* server:8080
   reverse_proxy /upload* server:8080
   reverse_proxy /tenor/* server:8080
-  reverse_proxy /gateway server:8080
 
-  # LiveKit (WebRTC signaling + Twirp)
+  # LiveKit
   reverse_proxy /rtc* livekit:7880
   reverse_proxy /twirp* livekit:7880
 }
