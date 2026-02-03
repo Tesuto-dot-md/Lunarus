@@ -1,19 +1,17 @@
-{
-  # email you@domain.tld
-  # acme_ca https://acme-v02.api.letsencrypt.org/directory
-}
-
 api.lunarus.ru {
-  encode gzip
 
-  # LiveKit HTTP/WebSocket endpoints
-  @livekit path /rtc* /twirp*
-  handle @livekit {
-    reverse_proxy livekit:7880
-  }
+  encode zstd gzip
 
-  # Uploads + API + gateway
-  handle {
-    reverse_proxy server:8080
-  }
+  # Backend API
+  reverse_proxy /auth/* server:8080
+  reverse_proxy /guilds* server:8080
+  reverse_proxy /channels* server:8080
+  reverse_proxy /voice/* server:8080
+  reverse_proxy /upload* server:8080
+  reverse_proxy /tenor/* server:8080
+  reverse_proxy /gateway server:8080
+
+  # LiveKit (WebRTC signaling + Twirp)
+  reverse_proxy /rtc* livekit:7880
+  reverse_proxy /twirp* livekit:7880
 }
