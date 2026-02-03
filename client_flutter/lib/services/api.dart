@@ -1,6 +1,22 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+/// Human-friendly API error.
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+  final String? bodySnippet;
+
+  ApiException(this.message, {this.statusCode, this.bodySnippet});
+
+  @override
+  String toString() {
+    final sc = (statusCode == null) ? '' : ' (HTTP $statusCode)';
+    final snip = (bodySnippet == null || bodySnippet!.isEmpty) ? '' : "\nBody: ${bodySnippet!}";
+    return 'ApiException: $message$sc$snip';
+  }
+}
+
 class LoginResult {
   final String token;
   final String userId;
@@ -12,6 +28,76 @@ class VoiceJoin {
   final String token;
   final String room;
   VoiceJoin({required this.url, required this.token, required this.room});
+}
+
+class ServerInfo {
+  final String id;
+  final String name;
+  final String? icon; // emoji or url
+  final String? ownerId;
+  ServerInfo({required this.id, required this.name, required this.icon, required this.ownerId});
+
+  factory ServerInfo.fromJson(Map<String, dynamic> j) => ServerInfo(
+        id: j['id'].toString(),
+        name: j['name'].toString(),
+        icon: (j['icon'] == null) ? null : j['icon'].toString(),
+        ownerId: (j['ownerId'] == null) ? null : j['ownerId'].toString(),
+      );
+}
+
+class InvitePreview {
+  final String code;
+  final String serverId;
+  final String serverName;
+  final String? serverIcon;
+  final String? channelId;
+  InvitePreview({required this.code, required this.serverId, required this.serverName, required this.serverIcon, required this.channelId});
+
+  factory InvitePreview.fromJson(Map<String, dynamic> j) => InvitePreview(
+        code: j['code'].toString(),
+        serverId: j['serverId'].toString(),
+        serverName: j['serverName'].toString(),
+        serverIcon: (j['serverIcon'] == null) ? null : j['serverIcon'].toString(),
+        channelId: (j['channelId'] == null) ? null : j['channelId'].toString(),
+      );
+}
+
+class ChannelInfo {
+  final String id;
+  final String serverId;
+  final String name;
+  final String type; // text | voice | forum
+  final int position;
+  final String? icon; // emoji/custom/url
+  final bool nsfw;
+  final bool isPrivate;
+  final String? linkedTextChannelId;
+  final String? room; // voice room name (optional)
+  ChannelInfo({
+    required this.id,
+    required this.serverId,
+    required this.name,
+    required this.type,
+    required this.position,
+    required this.icon,
+    required this.nsfw,
+    required this.isPrivate,
+    required this.linkedTextChannelId,
+    required this.room,
+  });
+
+  factory ChannelInfo.fromJson(Map<String, dynamic> j) => ChannelInfo(
+        id: j['id'].toString(),
+        serverId: j['serverId'].toString(),
+        name: j['name'].toString(),
+        type: (j['type'] ?? 'text').toString(),
+        position: (j['position'] as num?)?.toInt() ?? 0,
+        icon: (j['icon'] == null) ? null : j['icon'].toString(),
+        nsfw: (j['nsfw'] as bool?) ?? false,
+        isPrivate: (j['isPrivate'] as bool?) ?? false,
+        linkedTextChannelId: (j['linkedTextChannelId'] == null) ? null : j['linkedTextChannelId'].toString(),
+        room: (j['room'] == null) ? null : j['room'].toString(),
+      );
 }
 
 class ChatMessage {
@@ -77,16 +163,38 @@ class ApiClient {
     return u.replace(scheme: scheme, path: '/gateway', query: '').toString();
   }
 
+  String _snip(String s, {int max = 400}) {
+    final t = s.trim();
+    if (t.length <= max) return t;
+    return t.substring(0, max) + '…';
+  }
+
+  void _ensureOk(http.Response r, String ctx) {
+    if (r.statusCode < 200 || r.statusCode >= 300) {
+      throw ApiException('$ctx failed', statusCode: r.statusCode, bodySnippet: _snip(r.body));
+    }
+  }
+
+  dynamic _decodeJson(http.Response r, String ctx) {
+    final body = r.body.trim();
+    if (body.isEmpty) {
+      throw ApiException('Empty response from API for $ctx', statusCode: r.statusCode);
+    }
+    try {
+      return jsonDecode(body);
+    } on FormatException catch (e) {
+      throw ApiException('Invalid JSON for $ctx: ${e.message}', statusCode: r.statusCode, bodySnippet: _snip(body));
+    }
+  }
+
   Future<LoginResult> login({required String username}) async {
     final r = await http.post(
       _u('/auth/login'),
       headers: {'content-type': 'application/json'},
       body: jsonEncode({'username': username, 'password': 'demo'}),
     );
-    if (r.statusCode != 200) {
-      throw Exception('login failed: ${r.statusCode} ${r.body}');
-    }
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
+    _ensureOk(r, 'login');
+    final j = (_decodeJson(r, 'login') as Map).cast<String, dynamic>();
     final token = j['token'] as String;
     final user = (j['user'] as Map<String, dynamic>);
     return LoginResult(token: token, userId: user['id'].toString());
@@ -105,14 +213,12 @@ class ApiClient {
       r = await doGet('/messages?channelId=$channelId&limit=50');
     }
 
-    if (r.statusCode != 200) {
-      throw Exception('getMessages failed: ${r.statusCode} ${r.body}');
-    }
+    _ensureOk(r, 'getMessages');
 
     final body = r.body.trim();
     if (body.isEmpty) return <ChatMessage>[];
 
-    final j = jsonDecode(body) as Map<String, dynamic>;
+    final j = (_decodeJson(r, 'getMessages') as Map).cast<String, dynamic>;
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(ChatMessage.fromJson).toList();
   }
@@ -163,8 +269,10 @@ class ApiClient {
 
     final resp = await req.send();
     final body = await resp.stream.bytesToString();
-    if (resp.statusCode != 200) throw Exception('upload failed: ${resp.statusCode} $body');
-    final j = jsonDecode(body) as Map<String, dynamic>;
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw ApiException('upload failed', statusCode: resp.statusCode, bodySnippet: _snip(body));
+    }
+    final j = (_decodeJson(http.Response(body, resp.statusCode), 'upload') as Map).cast<String, dynamic>;
     return UploadResult(url: j['url'].toString(), mime: j['mime'].toString(), size: (j['size'] as num).toInt());
   }
 
@@ -173,10 +281,151 @@ class ApiClient {
       _u('/tenor/search?q=${Uri.encodeQueryComponent(q)}&limit=$limit'),
       headers: {'authorization': 'Bearer $authToken'},
     );
-    if (r.statusCode != 200) throw Exception('tenor search failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
+    _ensureOk(r, 'tenorSearch');
+    final j = (_decodeJson(r, 'tenorSearch') as Map).cast<String, dynamic>;
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(TenorGifItem.fromJson).toList();
+  }
+
+  Future<List<ServerInfo>> getServers({required String authToken}) async {
+    final r = await http.get(
+      _u('/servers'),
+      headers: {'authorization': 'Bearer $authToken'},
+    );
+    _ensureOk(r, 'getServers');
+    final j = (_decodeJson(r, 'getServers') as Map).cast<String, dynamic>;
+    final items = (j['items'] as List).cast<Map<String, dynamic>>();
+    return items.map(ServerInfo.fromJson).toList();
+  }
+
+  Future<List<ChannelInfo>> getServerChannels({required String authToken, required String serverId}) async {
+    final r = await http.get(
+      _u('/servers/$serverId/channels'),
+      headers: {'authorization': 'Bearer $authToken'},
+    );
+    _ensureOk(r, 'getServerChannels');
+    final j = (_decodeJson(r, 'getServerChannels') as Map).cast<String, dynamic>;
+    final items = (j['items'] as List).cast<Map<String, dynamic>>();
+    return items.map(ChannelInfo.fromJson).toList();
+  }
+
+  Future<ChannelInfo> patchChannel({
+    required String authToken,
+    required String channelId,
+    String? name,
+    String? icon,
+    bool? nsfw,
+    bool? isPrivate,
+    String? type,
+    int? position,
+    String? linkedTextChannelId,
+    String? room,
+  }) async {
+    final payload = <String, dynamic>{};
+    if (name != null) payload['name'] = name;
+    if (icon != null) payload['icon'] = icon;
+    if (nsfw != null) payload['nsfw'] = nsfw;
+    if (isPrivate != null) payload['isPrivate'] = isPrivate;
+    if (type != null) payload['type'] = type;
+    if (position != null) payload['position'] = position;
+    if (linkedTextChannelId != null) payload['linkedTextChannelId'] = linkedTextChannelId;
+    if (room != null) payload['room'] = room;
+
+    final r = await http.patch(
+      _u('/channels/$channelId'),
+      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+      body: jsonEncode(payload),
+    );
+    _ensureOk(r, 'patchChannel');
+    final j = (_decodeJson(r, 'patchChannel') as Map).cast<String, dynamic>;
+    return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
+  }
+
+  // --- Servers / Invites / Channels ---
+
+  Future<ServerInfo> createServer({required String authToken, required String name, String? icon}) async {
+    final r = await http.post(
+      _u('/servers'),
+      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+      body: jsonEncode({'name': name, 'icon': icon}),
+    );
+    _ensureOk(r, 'createServer');
+    final j = (_decodeJson(r, 'createServer') as Map).cast<String, dynamic>;
+    return ServerInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
+  }
+
+  Future<InvitePreview> getInvitePreview({required String authToken, required String codeOrUrl}) async {
+    // Accept raw code or full link; extract last path segment.
+    final raw = codeOrUrl.trim();
+    String code = raw;
+    try {
+      final u = Uri.parse(raw);
+      if (u.pathSegments.isNotEmpty) code = u.pathSegments.last;
+    } catch (_) {}
+
+    final r = await http.get(
+      _u('/invites/$code'),
+      headers: {'authorization': 'Bearer $authToken'},
+    );
+    _ensureOk(r, 'getInvitePreview');
+    final j = (_decodeJson(r, 'getInvitePreview') as Map).cast<String, dynamic>;
+    return InvitePreview.fromJson((j['item'] as Map).cast<String, dynamic>());
+  }
+
+  Future<ServerInfo> joinInvite({required String authToken, required String codeOrUrl}) async {
+    final raw = codeOrUrl.trim();
+    String code = raw;
+    try {
+      final u = Uri.parse(raw);
+      if (u.pathSegments.isNotEmpty) code = u.pathSegments.last;
+    } catch (_) {}
+
+    final r = await http.post(
+      _u('/invites/$code/join'),
+      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+      body: jsonEncode({}),
+    );
+    _ensureOk(r, 'joinInvite');
+    final j = (_decodeJson(r, 'joinInvite') as Map).cast<String, dynamic>;
+    return ServerInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
+  }
+
+  Future<String> createInvite({required String authToken, required String serverId, String? channelId}) async {
+    final r = await http.post(
+      _u('/servers/$serverId/invites'),
+      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+      body: jsonEncode({'channelId': channelId}),
+    );
+    _ensureOk(r, 'createInvite');
+    final j = (_decodeJson(r, 'createInvite') as Map).cast<String, dynamic>;
+    return (j['item'] as Map)['code'].toString();
+  }
+
+  Future<ChannelInfo> createChannel({
+    required String authToken,
+    required String serverId,
+    required String name,
+    required String type,
+    String? icon,
+    bool nsfw = false,
+    bool isPrivate = false,
+  }) async {
+    final r = await http.post(
+      _u('/servers/$serverId/channels'),
+      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+      body: jsonEncode({'name': name, 'type': type, 'icon': icon, 'nsfw': nsfw, 'isPrivate': isPrivate}),
+    );
+    _ensureOk(r, 'createChannel');
+    final j = (_decodeJson(r, 'createChannel') as Map).cast<String, dynamic>;
+    return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
+  }
+
+  Future<void> deleteChannel({required String authToken, required String channelId}) async {
+    final r = await http.delete(
+      _u('/channels/$channelId'),
+      headers: {'authorization': 'Bearer $authToken'},
+    );
+    _ensureOk(r, 'deleteChannel');
   }
 
   Future<VoiceJoin> joinVoice({required String authToken, required String room}) async {
@@ -185,8 +434,8 @@ class ApiClient {
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
       body: jsonEncode({'room': room}),
     );
-    if (r.statusCode != 200) throw Exception('voice/join failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
+    _ensureOk(r, 'joinVoice');
+    final j = (_decodeJson(r, 'joinVoice') as Map).cast<String, dynamic>;
     return VoiceJoin(url: j['url'].toString(), token: j['token'].toString(), room: j['room'].toString());
   }
 }
