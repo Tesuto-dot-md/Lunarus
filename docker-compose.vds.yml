@@ -2,16 +2,14 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_PASSWORD: Tesuto12345!
+      POSTGRES_PASSWORD: Michil12022090!
       POSTGRES_USER: lunarus
       POSTGRES_DB: lunarus
     volumes:
       - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
 
   redis:
     image: redis:7
-    restart: unless-stopped
 
   livekit:
     image: livekit/livekit-server:latest
@@ -19,20 +17,17 @@ services:
     volumes:
       - ./infra/livekit.yaml:/etc/livekit.yaml:ro
     ports:
-      # TCP for ICE-TCP fallback
-      - "7881:7881/tcp"
-      # UDP for media
+      - "7880:7880"       # HTTP / WS
+      - "7881:7881"       # optional TCP (depends on config)
       - "61000-61999:61000-61999/udp"
     restart: unless-stopped
 
   coturn:
     image: coturn/coturn:latest
+    network_mode: "host"
     volumes:
       - ./infra/turnserver.conf:/etc/coturn/turnserver.conf:ro
     command: ["-c", "/etc/coturn/turnserver.conf"]
-    ports:
-      - "3478:3478/udp"
-      - "5349:5349/tcp"
     restart: unless-stopped
 
   server:
@@ -47,22 +42,23 @@ services:
       - redis
       - livekit
     restart: unless-stopped
-
+  
   caddy:
     image: caddy:2
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"
     volumes:
-      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./infra:/etc/caddy
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - server
       - livekit
-    restart: unless-stopped
 
 volumes:
-  pgdata:
   caddy_data:
   caddy_config:
+  pgdata:

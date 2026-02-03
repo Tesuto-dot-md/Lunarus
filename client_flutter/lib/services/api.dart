@@ -14,6 +14,19 @@ class VoiceJoin {
   VoiceJoin({required this.url, required this.token, required this.room});
 }
 
+
+
+class VoiceParticipant {
+  final String identity;
+  final String name;
+  VoiceParticipant({required this.identity, required this.name});
+
+  factory VoiceParticipant.fromJson(Map<String, dynamic> j) => VoiceParticipant(
+        identity: (j['identity'] ?? '').toString(),
+        name: (j['name'] ?? j['identity'] ?? '').toString(),
+      );
+}
+
 class ChatMessage {
   final String id;
   final String channelId;
@@ -94,7 +107,7 @@ class ApiClient {
 
   Future<List<ChatMessage>> getMessages({required String authToken, required String channelId}) async {
     final r = await http.get(
-      _u('/messages?channelId=$channelId'),
+      _u('/channels/$channelId/messages'),
       headers: {'authorization': 'Bearer $authToken'},
     );
     if (r.statusCode != 200) throw Exception('getMessages failed: ${r.statusCode} ${r.body}');
@@ -111,9 +124,9 @@ class ApiClient {
     Map<String, dynamic>? media,
   }) async {
     final r = await http.post(
-      _u('/messages'),
+      _u('/channels/$channelId/messages'),
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
-      body: jsonEncode({'channelId': channelId, 'content': content, 'kind': kind, 'media': media}),
+      body: jsonEncode({'content': content, 'kind': kind, 'media': media}),
     );
     if (r.statusCode != 200) throw Exception('sendMessage failed: ${r.statusCode} ${r.body}');
   }
@@ -141,7 +154,30 @@ class ApiClient {
     return items.map(TenorGifItem.fromJson).toList();
   }
 
-  Future<VoiceJoin> joinVoice({required String authToken, required String room}) async {
+  Future<VoiceJoin> joinVoice({required String authToken, required String room}
+
+Future<List<VoiceParticipant>> getVoiceParticipants({
+  required String authToken,
+  required String room,
+}) async {
+  final r = await http.get(
+    _u('/voice/rooms/$room/participants'),
+    headers: {'authorization': 'Bearer $authToken'},
+  );
+
+  if (r.statusCode == 200) {
+    final j = jsonDecode(r.body.isEmpty ? '{}' : r.body) as Map<String, dynamic>;
+    final items = (j['items'] as List?) ?? const [];
+    return items
+        .whereType<Map>()
+        .map((e) => VoiceParticipant.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  if (r.statusCode == 404) return const <VoiceParticipant>[];
+  throw Exception('getVoiceParticipants failed: ${r.statusCode} ${r.body}');
+}
+) async {
     final r = await http.post(
       _u('/voice/join'),
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},

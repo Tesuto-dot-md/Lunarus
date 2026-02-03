@@ -56,12 +56,17 @@ class _HomeScreenState extends State<HomeScreen> {
   // Voice session state
   Room? _voiceRoom;
   String? _voiceRoomName;
+  String? _voiceChatChannelId;
   bool _voiceConnecting = false;
   String? _voiceError;
   bool _micMuted = false;
   // livekit_client's room.events.listen(...) returns an unsubscribe callback
   // (Future<void> Function()), not a StreamSubscription.
   Future<void> Function()? _roomUnsub;
+
+  // Voice presence for rendering participants under voice channels
+  Map<String, List<VoiceParticipant>> _voicePresence = {};
+  Timer? _voicePresenceTimer;
 
   @override
   void initState() {
@@ -83,17 +88,16 @@ class _HomeScreenState extends State<HomeScreen> {
             room: 'lobby',
             linkedChatChannelId: 'lobby-chat',
           ),
-          Channel(
-            id: 'lobby-chat',
-            name: 'lobby-chat',
-            type: ChannelType.text,
-          ),
         ],
       ),
     ];
 
     _selectedGuild = _guilds.first;
     _selectedChannel = _selectedGuild.channels.firstWhere((c) => c.type == ChannelType.text);
+
+    // Poll voice presence so the channel list can show who is in voice (Discord-like).
+    _refreshVoicePresence();
+    _voicePresenceTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshVoicePresence());
   }
 
   @override
@@ -101,6 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // best-effort unsubscribe (ignore result in dispose)
     _roomUnsub?.call();
     _roomUnsub = null;
+    _voicePresenceTimer?.cancel();
     _voiceRoom?.disconnect();
     super.dispose();
   }
@@ -121,18 +126,27 @@ class _HomeScreenState extends State<HomeScreen> {
     return pubs.first;
   }
 
-  Future<void> _joinVoice(String roomName) async {
+  Future<void> _joinVoice({required String roomName, required String chatChannelId}) async {
+    // Show the voice bar immediately while we connect.
     setState(() {
+      _voiceRoomName = roomName;
+      _voiceChatChannelId = chatChannelId;
       _voiceConnecting = true;
       _voiceError = null;
     });
 
     try {
-      // Disconnect previous
-      await _leaveVoice();
+      // Disconnect previous (but keep UI state until new room is ready)
+      await _leaveVoice(clearUi: false);
 
       final join = await widget.api.joinVoice(authToken: widget.authToken, room: roomName);
       final room = Room();
+
+      // Rebuild on any room event (participants speaking/join/leave, etc.)
+      _roomUnsub = room.events.listen((_) {
+        if (mounted) setState(() {});
+      });
+
       await room.connect(_normalizeLiveKitUrl(join.url), join.token);
       await room.localParticipant?.setMicrophoneEnabled(true);
 
@@ -140,14 +154,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final pub = _micPublication(room);
       _micMuted = pub?.muted ?? false;
 
-      _roomUnsub = room.events.listen((_) {
-        // Just trigger rebuild for speaking indicators/participants.
-        if (mounted) setState(() {});
-      });
-
       setState(() {
         _voiceRoom = room;
-        _voiceRoomName = roomName;
       });
     } catch (e) {
       setState(() {
@@ -162,15 +170,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _leaveVoice() async {
+Future<void> _leaveVoice({bool clearUi = true}) async {
     // best-effort unsubscribe
     await _roomUnsub?.call();
     _roomUnsub = null;
     await _voiceRoom?.disconnect();
     _voiceRoom = null;
-    _voiceRoomName = null;
     _micMuted = false;
     _voiceError = null;
+    if (clearUi) {
+      _voiceRoomName = null;
+      _voiceChatChannelId = null;
+    }
   }
 
   Future<void> _toggleMic() async {
@@ -197,48 +208,119 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _micMuted = nextMuted);
   }
 
-  void _selectGuild(Guild g) {
-    setState(() {
-      _selectedGuild = g;
-      _selectedChannel = g.channels.firstWhere((c) => c.type == ChannelType.text, orElse: () => g.channels.first);
-    });
-  }
 
-  Future<void> _selectChannel(Channel c) async {
-    if (c.type == ChannelType.voice) {
-      final roomName = c.room ?? c.id;
-      await _joinVoice(roomName);
-      // Switch chat to the linked chat channel if provided.
-      final linked = c.linkedChatChannelId;
-      if (linked != null) {
-        final chat = _selectedGuild.channels.firstWhere(
-          (x) => x.id == linked,
-          orElse: () => Channel(id: linked, name: linked, type: ChannelType.text),
-        );
-        setState(() => _selectedChannel = chat);
-      }
+void _selectGuild(Guild g) {
+  setState(() {
+    _selectedGuild = g;
+    _selectedChannel = g.channels.firstWhere(
+      (c) => c.type == ChannelType.text,
+      orElse: () => g.channels.first,
+    );
+  });
+}
+
+Future<void> _selectChannel(Channel c) async {
+  if (c.type == ChannelType.voice) {
+    final roomName = c.room ?? c.id;
+    final chatChannelId = c.linkedChatChannelId ?? c.id;
+
+    // If we're already connected (or connecting) to this voice room, don't reconnect.
+    if (_voiceRoomName == roomName &&
+        (_voiceConnecting || _voiceRoom?.connectionState == ConnectionState.connected)) {
+      if (mounted) setState(() => _selectedChannel = c);
       return;
     }
 
-    setState(() => _selectedChannel = c);
+    await _joinVoice(roomName: roomName, chatChannelId: chatChannelId);
+    if (mounted) setState(() => _selectedChannel = c);
+    return;
   }
+
+  setState(() => _selectedChannel = c);
+}
+
+void _openVoiceChatSheet() {
+  final chatChannelId = _voiceChatChannelId;
+  if (chatChannelId == null) return;
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (_) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.75,
+      minChildSize: 0.35,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) => Material(
+        child: Column(
+          children: [
+            Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              alignment: Alignment.centerLeft,
+              child: Row(
+                children: [
+                  const Icon(Icons.chat_bubble_outline, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Voice chat',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ChatScreen(
+                api: widget.api,
+                authToken: widget.authToken,
+                userId: widget.userId,
+                channelId: chatChannelId,
+                embedded: true,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 
   @override
   Widget build(BuildContext context) {
     final textChannels = _selectedGuild.channels.where((c) => c.type == ChannelType.text).toList();
     final voiceChannels = _selectedGuild.channels.where((c) => c.type == ChannelType.voice).toList();
 
+    final isVoice = _selectedChannel.type == ChannelType.voice;
+    final title = isVoice ? '🔊 ${_selectedChannel.name}' : '#${_selectedChannel.name}';
     final rightPane = Column(
       children: [
-        _TopBar(title: '#${_selectedChannel.name}'),
+        _TopBar(title: title),
         Expanded(
-          child: ChatScreen(
-            api: widget.api,
-            authToken: widget.authToken,
-            userId: widget.userId,
-            channelId: _selectedChannel.id,
-            embedded: true,
-          ),
+          child: isVoice
+              ? _VoiceDetails(
+                  room: _voiceRoom,
+                  roomName: _voiceRoomName,
+                  connecting: _voiceConnecting,
+                  error: _voiceError,
+                  onOpenChat: _openVoiceChatSheet,
+                )
+              : ChatScreen(
+                  api: widget.api,
+                  authToken: widget.authToken,
+                  userId: widget.userId,
+                  channelId: _selectedChannel.id,
+                  embedded: true,
+                ),
         ),
         if (_voiceRoomName != null) _VoiceBar(
           roomName: _voiceRoomName!,
@@ -247,6 +329,7 @@ class _HomeScreenState extends State<HomeScreen> {
           micMuted: _micMuted,
           participantsCount: (_voiceRoom?.remoteParticipants.length ?? 0) + (_voiceRoom?.localParticipant != null ? 1 : 0),
           onToggleMic: _toggleMic,
+          onOpenChat: _openVoiceChatSheet,
           onDisconnect: () async {
             await _leaveVoice();
             if (mounted) setState(() {});
@@ -279,6 +362,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 selected: _selectedChannel,
                 onSelect: _selectChannel,
                 voiceActiveRoom: _voiceRoomName,
+                voicePresence: _voicePresence,
               ),
             ),
             const VerticalDivider(width: 1),
@@ -302,6 +386,101 @@ class _TopBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       alignment: Alignment.centerLeft,
       child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+    );
+  }
+}
+
+
+class _VoiceDetails extends StatelessWidget {
+  final Room? room;
+  final String? roomName;
+  final bool connecting;
+  final String? error;
+  final VoidCallback onOpenChat;
+
+  const _VoiceDetails({
+    required this.room,
+    required this.roomName,
+    required this.connecting,
+    required this.error,
+    required this.onOpenChat,
+  });
+
+  String _displayName(Participant p) {
+    final n = (p.name ?? '').trim();
+    if (n.isNotEmpty) return n;
+    final id = (p.identity).trim();
+    return id.isNotEmpty ? id : 'user';
+  }
+
+  Widget _avatarFor(String name) {
+    final letter = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    return CircleAvatar(
+      radius: 16,
+      child: Text(letter, style: const TextStyle(fontWeight: FontWeight.bold)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = room;
+    final locals = <Participant>[];
+    if (r?.localParticipant != null) locals.add(r!.localParticipant!);
+    final remotes = (r?.remoteParticipants.values.toList() ?? <RemoteParticipant>[]);
+    final all = [...locals, ...remotes];
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.headset_mic, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  roomName == null ? 'Voice' : 'Voice: $roomName',
+                  style: Theme.of(context).textTheme.titleMedium,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: onOpenChat,
+                icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                label: const Text('Chat'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (error != null)
+            Text('Error: $error', style: const TextStyle(color: Colors.red)),
+          if (connecting && error == null) const Text('Connecting...'),
+          const SizedBox(height: 12),
+          Text('Participants (${all.length})', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          Expanded(
+            child: all.isEmpty
+                ? const Center(child: Text('No participants yet'))
+                : ListView.separated(
+                    itemCount: all.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final p = all[i];
+                      final name = _displayName(p);
+                      final speaking = (p is RemoteParticipant) ? p.isSpeaking : false;
+                      final subtitle = speaking ? 'speaking' : 'idle';
+                      return ListTile(
+                        leading: _avatarFor(name),
+                        title: Text(name, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(subtitle),
+                        dense: true,
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -356,6 +535,7 @@ class _ChannelsPane extends StatelessWidget {
   final Channel selected;
   final Future<void> Function(Channel) onSelect;
   final String? voiceActiveRoom;
+  final Map<String, List<VoiceParticipant>> voicePresence;
 
   const _ChannelsPane({
     required this.guildName,
@@ -364,6 +544,7 @@ class _ChannelsPane extends StatelessWidget {
     required this.selected,
     required this.onSelect,
     required this.voiceActiveRoom,
+    required this.voicePresence,
   });
 
   @override
@@ -392,13 +573,11 @@ class _ChannelsPane extends StatelessWidget {
               const SizedBox(height: 12),
               _SectionHeader('Voice Channels'),
               for (final c in voiceChannels)
-                _ChannelTile(
-                  leading: Icon(
-                    voiceActiveRoom == (c.room ?? c.id) ? Icons.graphic_eq : Icons.volume_up,
-                    size: 18,
-                  ),
-                  title: c.name,
-                  selected: false,
+                _VoiceChannelTileWithPresence(
+                  channel: c,
+                  selected: c.id == selected.id,
+                  activeRoom: voiceActiveRoom,
+                  participants: voicePresence[c.room ?? c.id] ?? const [],
                   onTap: () => onSelect(c),
                 ),
             ],
@@ -420,6 +599,91 @@ class _SectionHeader extends StatelessWidget {
       child: Text(
         text.toUpperCase(),
         style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white54),
+      ),
+    );
+  }
+}
+
+
+class _VoiceChannelTileWithPresence extends StatelessWidget {
+  final Channel channel;
+  final bool selected;
+  final String? activeRoom;
+  final List<VoiceParticipant> participants;
+  final VoidCallback onTap;
+
+  const _VoiceChannelTileWithPresence({
+    required this.channel,
+    required this.selected,
+    required this.activeRoom,
+    required this.participants,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final roomName = channel.room ?? channel.id;
+    final isActive = activeRoom == roomName;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ChannelTile(
+            leading: Icon(isActive ? Icons.graphic_eq : Icons.volume_up, size: 18),
+            title: channel.name,
+            selected: selected,
+            onTap: onTap,
+          ),
+          if (participants.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 18, top: 4, bottom: 6),
+              child: Column(
+                children: [
+                  for (final p in participants.take(6))
+                    _VoiceParticipantRow(name: p.name),
+                  if (participants.length > 6)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '+${participants.length - 6} more',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white54),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VoiceParticipantRow extends StatelessWidget {
+  final String name;
+  const _VoiceParticipantRow({required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = name.isNotEmpty ? name.trim()[0].toUpperCase() : '?';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          CircleAvatar(radius: 10, child: Text(initial, style: const TextStyle(fontSize: 11))),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              name,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white70),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -472,6 +736,7 @@ class _VoiceBar extends StatelessWidget {
   final bool micMuted;
   final int participantsCount;
   final Future<void> Function() onToggleMic;
+  final VoidCallback onOpenChat;
   final Future<void> Function() onDisconnect;
 
   const _VoiceBar({
@@ -481,6 +746,7 @@ class _VoiceBar extends StatelessWidget {
     required this.micMuted,
     required this.participantsCount,
     required this.onToggleMic,
+    required this.onOpenChat,
     required this.onDisconnect,
   });
 
@@ -513,6 +779,11 @@ class _VoiceBar extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          IconButton(
+            tooltip: 'Open voice chat',
+            onPressed: onOpenChat,
+            icon: const Icon(Icons.chat_bubble_outline),
           ),
           IconButton(
             tooltip: micMuted ? 'Unmute mic' : 'Mute mic',
