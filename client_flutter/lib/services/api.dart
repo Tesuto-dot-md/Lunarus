@@ -218,7 +218,7 @@ class ApiClient {
     final body = r.body.trim();
     if (body.isEmpty) return <ChatMessage>[];
 
-    final j = (_decodeJson(r, 'getMessages') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'getMessages') as Map).cast<String, dynamic>();
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(ChatMessage.fromJson).toList();
   }
@@ -272,7 +272,7 @@ class ApiClient {
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw ApiException('upload failed', statusCode: resp.statusCode, bodySnippet: _snip(body));
     }
-    final j = (_decodeJson(http.Response(body, resp.statusCode), 'upload') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(http.Response(body, resp.statusCode), 'upload') as Map).cast<String, dynamic>();
     return UploadResult(url: j['url'].toString(), mime: j['mime'].toString(), size: (j['size'] as num).toInt());
   }
 
@@ -282,7 +282,7 @@ class ApiClient {
       headers: {'authorization': 'Bearer $authToken'},
     );
     _ensureOk(r, 'tenorSearch');
-    final j = (_decodeJson(r, 'tenorSearch') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'tenorSearch') as Map).cast<String, dynamic>();
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(TenorGifItem.fromJson).toList();
   }
@@ -293,7 +293,7 @@ class ApiClient {
       headers: {'authorization': 'Bearer $authToken'},
     );
     _ensureOk(r, 'getServers');
-    final j = (_decodeJson(r, 'getServers') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'getServers') as Map).cast<String, dynamic>();
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(ServerInfo.fromJson).toList();
   }
@@ -304,7 +304,7 @@ class ApiClient {
       headers: {'authorization': 'Bearer $authToken'},
     );
     _ensureOk(r, 'getServerChannels');
-    final j = (_decodeJson(r, 'getServerChannels') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'getServerChannels') as Map).cast<String, dynamic>();
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(ChannelInfo.fromJson).toList();
   }
@@ -337,7 +337,7 @@ class ApiClient {
       body: jsonEncode(payload),
     );
     _ensureOk(r, 'patchChannel');
-    final j = (_decodeJson(r, 'patchChannel') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'patchChannel') as Map).cast<String, dynamic>();
     return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
@@ -350,7 +350,7 @@ class ApiClient {
       body: jsonEncode({'name': name, 'icon': icon}),
     );
     _ensureOk(r, 'createServer');
-    final j = (_decodeJson(r, 'createServer') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'createServer') as Map).cast<String, dynamic>();
     return ServerInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
@@ -368,7 +368,7 @@ class ApiClient {
       headers: {'authorization': 'Bearer $authToken'},
     );
     _ensureOk(r, 'getInvitePreview');
-    final j = (_decodeJson(r, 'getInvitePreview') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'getInvitePreview') as Map).cast<String, dynamic>();
     return InvitePreview.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
@@ -386,7 +386,7 @@ class ApiClient {
       body: jsonEncode({}),
     );
     _ensureOk(r, 'joinInvite');
-    final j = (_decodeJson(r, 'joinInvite') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'joinInvite') as Map).cast<String, dynamic>();
     return ServerInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
@@ -397,7 +397,7 @@ class ApiClient {
       body: jsonEncode({'channelId': channelId}),
     );
     _ensureOk(r, 'createInvite');
-    final j = (_decodeJson(r, 'createInvite') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'createInvite') as Map).cast<String, dynamic>();
     return (j['item'] as Map)['code'].toString();
   }
 
@@ -416,7 +416,7 @@ class ApiClient {
       body: jsonEncode({'name': name, 'type': type, 'icon': icon, 'nsfw': nsfw, 'isPrivate': isPrivate}),
     );
     _ensureOk(r, 'createChannel');
-    final j = (_decodeJson(r, 'createChannel') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'createChannel') as Map).cast<String, dynamic>();
     return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
@@ -435,7 +435,7 @@ class ApiClient {
       body: jsonEncode({'room': room}),
     );
     _ensureOk(r, 'joinVoice');
-    final j = (_decodeJson(r, 'joinVoice') as Map).cast<String, dynamic>;
+    final j = (_decodeJson(r, 'joinVoice') as Map).cast<String, dynamic>();
     return VoiceJoin(url: j['url'].toString(), token: j['token'].toString(), room: j['room'].toString());
   }
 }
