@@ -224,6 +224,62 @@ app.post('/messages', authMiddleware, async (req, res) => {
   res.json({ ok: true, item });
 });
 
+// --- Compatibility routes ---
+// Some tools/clients expect Discord-like paths, e.g.:
+//   GET  /channels/:channelId/messages
+//   POST /channels/:channelId/messages
+// These routes forward to the existing /messages endpoints.
+app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId ?? 'general');
+  const limitRaw = Number(req.query.limit ?? 50);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, limitRaw)) : 50;
+
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+
+  const r = await pool.query(
+    `SELECT id, channel_id, author_id, content, kind, media, ts
+       FROM messages
+      WHERE channel_id = $1
+      ORDER BY ts DESC
+      LIMIT $2`,
+    [channelId, limit]
+  );
+
+  const items = r.rows.map(toClientMessage).reverse();
+  res.json({ items });
+});
+
+app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId ?? 'general');
+  const { content = '', kind = 'text', media = null } = req.body ?? {};
+
+  const k = String(kind || 'text');
+  const allowed = new Set(['text', 'image', 'gif']);
+  if (!allowed.has(k)) return res.status(400).json({ error: 'bad kind' });
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+
+  const msg = {
+    channelId,
+    authorId: String(req.user?.sub),
+    content: String(content ?? ''),
+    kind: k,
+    media: media ?? null,
+    ts: Date.now(),
+  };
+
+  const r = await pool.query(
+    `INSERT INTO messages(channel_id, author_id, content, kind, media, ts)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, channel_id, author_id, content, kind, media, ts`,
+    [msg.channelId, msg.authorId, msg.content, msg.kind, msg.media, msg.ts]
+  );
+
+  const item = toClientMessage(r.rows[0]);
+  broadcast({ t: 'MESSAGE_CREATE', d: item }, (c) => c.channelId === item.channelId);
+
+  res.json({ ok: true, item });
+});
+
 // Загрузка изображения (multipart/form-data, поле: file)
 app.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'missing file' });
