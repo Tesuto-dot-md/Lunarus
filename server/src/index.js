@@ -35,9 +35,14 @@ const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
 // Uploads
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads';
 const UPLOADS_FILES_DIR = path.join(UPLOADS_DIR, 'files');
+const UPLOADS_TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
 fs.mkdirSync(UPLOADS_FILES_DIR, { recursive: true });
 
-const upload = multer({ dest: path.join(UPLOADS_DIR, 'tmp') });
+// Multer does NOT create the destination directory automatically.
+// If it doesn't exist, uploads will fail with ENOENT.
+fs.mkdirSync(UPLOADS_TMP_DIR, { recursive: true });
+
+const upload = multer({ dest: UPLOADS_TMP_DIR });
 app.use('/uploads', express.static(UPLOADS_FILES_DIR));
 
 // --- Auth helpers ---
@@ -262,7 +267,15 @@ const wss = new WebSocketServer({ server: httpServer, path: '/gateway' });
 const clients = new Set();
 
 function safeSend(ws, obj) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
+  // In the `ws` library, OPEN is a constant on the WebSocket class, not the instance.
+  // Using `ws.OPEN` breaks sends because it is undefined.
+  if (ws.readyState === 1 /* WebSocket.OPEN */) {
+    try {
+      ws.send(JSON.stringify(obj));
+    } catch (_) {
+      // Ignore transient socket errors.
+    }
+  }
 }
 
 function broadcast(obj, predicate = () => true) {
