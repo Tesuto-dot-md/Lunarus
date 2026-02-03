@@ -11,14 +11,14 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _userController = TextEditingController(text: 'user');
-  final _urlController = TextEditingController(text: 'http://localhost:8080');
   bool _loading = false;
   String? _error;
+
+  static const String _baseUrl = 'https://api.lunarus.ru';
 
   @override
   void dispose() {
     _userController.dispose();
-    _urlController.dispose();
     super.dispose();
   }
 
@@ -29,8 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final rawUrl = _urlController.text.trim();
-      final api = ApiClient(baseUrl: rawUrl);
+      final api = ApiClient(baseUrl: _baseUrl);
       final res = await api.login(username: _userController.text.trim());
 
       if (!mounted) return;
@@ -57,9 +56,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Server URL (пример: https://api.lunarus.ru или http://localhost:8080):'),
-            const SizedBox(height: 8),
-            TextField(controller: _urlController),
+            Text('Server: $_baseUrl'),
             const SizedBox(height: 16),
             const Text('Username:'),
             const SizedBox(height: 8),

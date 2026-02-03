@@ -2,18 +2,14 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_PASSWORD: example
-      POSTGRES_USER: app
-      POSTGRES_DB: app
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: Michil12022090!
+      POSTGRES_USER: lunarus
+      POSTGRES_DB: lunarus
     volumes:
       - pgdata:/var/lib/postgresql/data
 
   redis:
     image: redis:7
-    ports:
-      - "6379:6379"
 
   livekit:
     image: livekit/livekit-server:latest
@@ -41,13 +37,28 @@ services:
       - ./server/.env
     volumes:
       - ./uploads:/app/uploads
-    ports:
-      - "8080:8080"
     depends_on:
       - postgres
       - redis
       - livekit
     restart: unless-stopped
+  
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./infra:/etc/caddy
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - server
+      - livekit
 
 volumes:
+  caddy_data:
+  caddy_config:
   pgdata:
