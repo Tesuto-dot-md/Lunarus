@@ -32,8 +32,17 @@ class _ChatScreenState extends State<ChatScreen> {
   final _input = TextEditingController();
   final _items = <ChatMessage>[];
   final Map<String, List<ChatMessage>> _cache = {};
+<<<<<<< HEAD
   final Map<String, String> _pendingByFingerprint = {};
   bool _loadingHistory = false;
+=======
+<<<<<<< HEAD
+  final Map<String, String> _pendingByFingerprint = {};
+  bool _loadingHistory = false;
+=======
+  bool _loading = false;
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
   GatewayClient? _gw;
   StreamSubscription? _sub;
 
@@ -64,10 +73,23 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadHistory() async {
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
     setState(() => _loadingHistory = true);
     try {
       final history = await widget.api.getMessages(authToken: widget.authToken, channelId: _channelId);
       _cache[_channelId] = history;
+<<<<<<< HEAD
+=======
+=======
+    setState(() => _loading = true);
+    try {
+      final history = await widget.api.getMessages(authToken: widget.authToken, channelId: _channelId);
+      _cache[_channelId] = List<ChatMessage>.from(history);
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
       if (!mounted) return;
       setState(() {
         _items
@@ -75,13 +97,25 @@ class _ChatScreenState extends State<ChatScreen> {
           ..addAll(history);
       });
     } finally {
+<<<<<<< HEAD
       if (mounted) setState(() => _loadingHistory = false);
+=======
+<<<<<<< HEAD
+      if (mounted) setState(() => _loadingHistory = false);
+=======
+      if (mounted) setState(() => _loading = false);
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
     }
   }
 
   Future<void> _switchChannel(String next) async {
     setState(() {
       _channelId = next;
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
 
       final cached = _cache[next];
       if (cached != null) {
@@ -90,11 +124,21 @@ class _ChatScreenState extends State<ChatScreen> {
           ..addAll(cached);
       }
       // If no cache, keep current items until history arrives to avoid "blank screen" flicker.
+<<<<<<< HEAD
+=======
+=======
+      _items
+        ..clear()
+        ..addAll(_cache[next] ?? const <ChatMessage>[]);
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
     });
 
     // Subscribe via gateway (best-effort) and reload history.
     _gw?.subscribe(_channelId);
-    await _loadHistory();
+
+    // Refresh in background (doesn't blank the UI).
+    unawaited(_loadHistory());
   }
 
 Future<void> _connectGateway() async {
@@ -107,6 +151,10 @@ Future<void> _connectGateway() async {
     _sub = gw.events.listen((evt) {
       if (evt.type == 'MESSAGE_CREATE') {
         final m = ChatMessage.fromJson(evt.data as Map<String, dynamic>);
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
         final fp = '${m.authorId}|${m.content}|${m.kind}|${m.channelId}';
         final pendingId = _pendingByFingerprint.remove(fp);
         setState(() {
@@ -116,6 +164,13 @@ Future<void> _connectGateway() async {
           _items.add(m);
           _cache[_channelId] = List<ChatMessage>.from(_items);
         });
+<<<<<<< HEAD
+=======
+=======
+        if (_items.any((x) => x.id == m.id)) return;
+        setState(() => _items.add(m));
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
       }
     });
     setState(() => _gw = gw);
@@ -127,16 +182,33 @@ Future<void> _connectGateway() async {
 
     _input.clear();
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
     // Optimistic UI: render immediately, then reconcile when WS echoes back.
     final tmpId = 'local-${DateTime.now().microsecondsSinceEpoch}';
     final now = DateTime.now().millisecondsSinceEpoch;
     final optimistic = ChatMessage(
       id: tmpId,
+<<<<<<< HEAD
+=======
+=======
+    // Optimistic UI: show immediately, then replace with server message.
+    final tempId = 'local-${DateTime.now().microsecondsSinceEpoch}';
+    final pending = ChatMessage(
+      id: tempId,
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
       channelId: _channelId,
       authorId: widget.userId,
       content: text,
       kind: 'text',
       media: null,
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
       ts: now,
     );
 
@@ -168,6 +240,43 @@ Future<void> _connectGateway() async {
             ts: m.ts,
           );
           _cache[_channelId] = List<ChatMessage>.from(_items);
+<<<<<<< HEAD
+=======
+=======
+      ts: DateTime.now().millisecondsSinceEpoch,
+    );
+    setState(() => _items.add(pending));
+
+    try {
+      final sent = await widget.api.sendMessage(
+        authToken: widget.authToken,
+        channelId: _channelId,
+        content: text,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        final idx = _items.indexWhere((x) => x.id == tempId);
+        if (idx >= 0) _items[idx] = sent;
+      });
+    } catch (_) {
+      // If failed, keep the pending message (so user sees it) but mark with a prefix.
+      if (!mounted) return;
+      setState(() {
+        final idx = _items.indexWhere((x) => x.id == tempId);
+        if (idx >= 0) {
+          final old = _items[idx];
+          _items[idx] = ChatMessage(
+            id: old.id,
+            channelId: old.channelId,
+            authorId: old.authorId,
+            content: '[FAILED] ${old.content}',
+            kind: old.kind,
+            media: old.media,
+            ts: old.ts,
+          );
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
         }
       });
     }
@@ -334,7 +443,15 @@ Future<void> _sendImage() async {
   Widget build(BuildContext context) {
     final body = Column(
       children: [
+<<<<<<< HEAD
         if (_loadingHistory) const LinearProgressIndicator(),
+=======
+<<<<<<< HEAD
+        if (_loadingHistory) const LinearProgressIndicator(),
+=======
+        if (_loading) const LinearProgressIndicator(minHeight: 2),
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
         Expanded(
           child: ListView.builder(
             itemCount: _items.length,
