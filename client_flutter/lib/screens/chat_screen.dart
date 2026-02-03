@@ -32,7 +32,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final _input = TextEditingController();
   final _items = <ChatMessage>[];
   final Map<String, List<ChatMessage>> _cache = {};
-  bool _loading = false;
+  final Map<String, String> _pendingByFingerprint = {};
+  bool _loadingHistory = false;
   GatewayClient? _gw;
   StreamSubscription? _sub;
 
@@ -63,10 +64,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadHistory() async {
-    setState(() => _loading = true);
+    setState(() => _loadingHistory = true);
     try {
       final history = await widget.api.getMessages(authToken: widget.authToken, channelId: _channelId);
-      _cache[_channelId] = List<ChatMessage>.from(history);
+      _cache[_channelId] = history;
       if (!mounted) return;
       setState(() {
         _items
@@ -74,26 +75,29 @@ class _ChatScreenState extends State<ChatScreen> {
           ..addAll(history);
       });
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _loadingHistory = false);
     }
   }
 
   Future<void> _switchChannel(String next) async {
     setState(() {
       _channelId = next;
-      _items
-        ..clear()
-        ..addAll(_cache[next] ?? const <ChatMessage>[]);
+
+      final cached = _cache[next];
+      if (cached != null) {
+        _items
+          ..clear()
+          ..addAll(cached);
+      }
+      // If no cache, keep current items until history arrives to avoid "blank screen" flicker.
     });
 
     // Subscribe via gateway (best-effort) and reload history.
     _gw?.subscribe(_channelId);
-
-    // Refresh in background (doesn't blank the UI).
-    unawaited(_loadHistory());
+    await _loadHistory();
   }
 
-  Future<void> _connectGateway() async {
+Future<void> _connectGateway() async {
     final gw = GatewayClient(
       wsUrl: widget.api.gatewayWsUrl(),
       token: widget.authToken,
@@ -103,8 +107,15 @@ class _ChatScreenState extends State<ChatScreen> {
     _sub = gw.events.listen((evt) {
       if (evt.type == 'MESSAGE_CREATE') {
         final m = ChatMessage.fromJson(evt.data as Map<String, dynamic>);
-        if (_items.any((x) => x.id == m.id)) return;
-        setState(() => _items.add(m));
+        final fp = '${m.authorId}|${m.content}|${m.kind}|${m.channelId}';
+        final pendingId = _pendingByFingerprint.remove(fp);
+        setState(() {
+          if (pendingId != null) {
+            _items.removeWhere((x) => x.id == pendingId);
+          }
+          _items.add(m);
+          _cache[_channelId] = List<ChatMessage>.from(_items);
+        });
       }
     });
     setState(() => _gw = gw);
@@ -113,55 +124,56 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendText() async {
     final text = _input.text.trim();
     if (text.isEmpty) return;
+
     _input.clear();
 
-    // Optimistic UI: show immediately, then replace with server message.
-    final tempId = 'local-${DateTime.now().microsecondsSinceEpoch}';
-    final pending = ChatMessage(
-      id: tempId,
+    // Optimistic UI: render immediately, then reconcile when WS echoes back.
+    final tmpId = 'local-${DateTime.now().microsecondsSinceEpoch}';
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final optimistic = ChatMessage(
+      id: tmpId,
       channelId: _channelId,
       authorId: widget.userId,
       content: text,
       kind: 'text',
       media: null,
-      ts: DateTime.now().millisecondsSinceEpoch,
+      ts: now,
     );
-    setState(() => _items.add(pending));
+
+    final fp = '${optimistic.authorId}|${optimistic.content}|${optimistic.kind}|${optimistic.channelId}';
+    _pendingByFingerprint[fp] = tmpId;
+
+    setState(() {
+      _items.add(optimistic);
+      _cache[_channelId] = List<ChatMessage>.from(_items);
+    });
 
     try {
-      final sent = await widget.api.sendMessage(
-        authToken: widget.authToken,
-        channelId: _channelId,
-        content: text,
-      );
-
+      await widget.api.sendMessage(authToken: widget.authToken, channelId: _channelId, content: text);
+    } catch (e) {
+      // Mark as failed (keep it visible)
       if (!mounted) return;
       setState(() {
-        final idx = _items.indexWhere((x) => x.id == tempId);
-        if (idx >= 0) _items[idx] = sent;
-      });
-    } catch (_) {
-      // If failed, keep the pending message (so user sees it) but mark with a prefix.
-      if (!mounted) return;
-      setState(() {
-        final idx = _items.indexWhere((x) => x.id == tempId);
-        if (idx >= 0) {
-          final old = _items[idx];
-          _items[idx] = ChatMessage(
-            id: old.id,
-            channelId: old.channelId,
-            authorId: old.authorId,
-            content: '[FAILED] ${old.content}',
-            kind: old.kind,
-            media: old.media,
-            ts: old.ts,
+        _pendingByFingerprint.remove(fp);
+        final i = _items.indexWhere((x) => x.id == tmpId);
+        if (i >= 0) {
+          final m = _items[i];
+          _items[i] = ChatMessage(
+            id: m.id,
+            channelId: m.channelId,
+            authorId: m.authorId,
+            content: '${m.content} (failed)',
+            kind: m.kind,
+            media: m.media,
+            ts: m.ts,
           );
+          _cache[_channelId] = List<ChatMessage>.from(_items);
         }
       });
     }
   }
 
-  Future<void> _sendImage() async {
+Future<void> _sendImage() async {
     final controller = TextEditingController();
     final choice = await showDialog<String>(
       context: context,
@@ -322,7 +334,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final body = Column(
       children: [
-        if (_loading) const LinearProgressIndicator(minHeight: 2),
+        if (_loadingHistory) const LinearProgressIndicator(),
         Expanded(
           child: ListView.builder(
             itemCount: _items.length,

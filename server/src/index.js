@@ -4,7 +4,7 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { Pool } from 'pg';
 import multer from 'multer';
 import fs from 'fs';
@@ -26,6 +26,11 @@ const LIVEKIT_URL = process.env.LIVEKIT_URL ?? 'http://localhost:7880';
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY ?? 'devkey';
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET ?? 'devsecret';
 
+
+// RoomServiceClient needs HTTP(S) base URL (not ws/wss)
+const LIVEKIT_HTTP_URL = (LIVEKIT_URL || '').replace(/^wss:/, 'https:').replace(/^ws:/, 'http:').replace(/\/$/, '');
+const roomService = new RoomServiceClient(LIVEKIT_HTTP_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+
 // Postgres
 const DATABASE_URL = process.env.DATABASE_URL ?? null;
 if (!DATABASE_URL) {
@@ -38,11 +43,21 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads';
 const UPLOADS_FILES_DIR = path.join(UPLOADS_DIR, 'files');
 const UPLOADS_TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
 fs.mkdirSync(UPLOADS_FILES_DIR, { recursive: true });
+fs.mkdirSync(UPLOADS_TMP_DIR, { recursive: true });
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
 // Multer does NOT create the destination directory automatically.
 // If it doesn't exist, uploads will fail with ENOENT.
 fs.mkdirSync(UPLOADS_TMP_DIR, { recursive: true });
 
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 const upload = multer({ dest: UPLOADS_TMP_DIR });
 app.use('/uploads', express.static(UPLOADS_FILES_DIR));
 
@@ -408,6 +423,22 @@ app.post('/messages', authMiddleware, async (req, res) => {
   res.json({ ok: true, item });
 });
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
+// Discord-like channel routes (compatible with client expectations)
+// GET /channels/:channelId/messages?limit=50
+app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId);
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+=======
 // --- Compatibility routes ---
 // Some tools/clients expect Discord-like paths, e.g.:
 //   GET  /channels/:channelId/messages
@@ -415,6 +446,9 @@ app.post('/messages', authMiddleware, async (req, res) => {
 // These routes forward to the existing /messages endpoints.
 app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const channelId = String(req.params.channelId ?? 'general');
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
   const limitRaw = Number(req.query.limit ?? 50);
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, limitRaw)) : 50;
 
@@ -433,6 +467,26 @@ app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   res.json({ items });
 });
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
+// POST /channels/:channelId/messages
+app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
+  const channelId = String(req.params.channelId);
+  const { content = '', kind = 'text', media = null } = req.body ?? {};
+  const k = String(kind || 'text');
+  const allowed = new Set(['text', 'image', 'gif']);
+  if (!allowed.has(k)) return res.status(400).json({ error: 'bad kind' });
+
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+=======
 app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const channelId = String(req.params.channelId ?? 'general');
   const { content = '', kind = 'text', media = null } = req.body ?? {};
@@ -440,6 +494,9 @@ app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const k = String(kind || 'text');
   const allowed = new Set(['text', 'image', 'gif']);
   if (!allowed.has(k)) return res.status(400).json({ error: 'bad kind' });
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
   if (!pool) return res.status(500).json({ error: 'db not configured' });
 
   const msg = {
@@ -464,6 +521,18 @@ app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   res.json({ ok: true, item });
 });
 
+<<<<<<< HEAD
+
+=======
+<<<<<<< HEAD
+
+=======
+<<<<<<< HEAD
+
+=======
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 // Загрузка изображения (multipart/form-data, поле: file)
 app.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'missing file' });
@@ -530,17 +599,18 @@ app.get('/tenor/search', authMiddleware, async (req, res) => {
 
 // Выдать токен на вход в голосовую комнату (LiveKit)
 app.post('/voice/join', authMiddleware, async (req, res) => {
-  const room = req.body?.room || 'demo-room';
+  const room = String(req.body?.room || 'demo-room');
 
-  const identity =
-    req.user?.username ||
-    req.user?.sub ||
-    'user';
+  // LiveKit participants:
+  // - identity should be stable (use user id)
+  // - name is what UI should display (use username)
+  const identity = String(req.user?.sub || req.user?.username || 'user');
+  const name = String(req.user?.username || identity);
 
   const at = new AccessToken(
     process.env.LIVEKIT_API_KEY,
     process.env.LIVEKIT_API_SECRET,
-    { identity }
+    { identity, name }
   );
 
   at.addGrant({
@@ -569,6 +639,26 @@ app.post('/voice/join', authMiddleware, async (req, res) => {
   });
 });
 
+
+// List participants currently connected to a LiveKit room. Used to render "who is in voice" under the channel list.
+app.get('/voice/rooms/:room/participants', authMiddleware, async (req, res) => {
+  try {
+    const room = String(req.params.room || '');
+    if (!room) return res.status(400).json({ error: 'missing room' });
+
+    const parts = await roomService.listParticipants(room);
+    return res.json({
+      items: parts.map((p) => ({
+        identity: p.identity,
+        name: p.name || p.identity,
+      })),
+    });
+  } catch (e) {
+    console.error('voice participants error', e);
+    return res.status(500).json({ error: 'voice participants failed' });
+  }
+});
+
 // --- WebSocket Gateway ---
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer, path: '/gateway' });
@@ -576,7 +666,17 @@ const wss = new WebSocketServer({ server: httpServer, path: '/gateway' });
 // clients: { ws, userId, username, channelId }
 const clients = new Set();
 
+const WS_OPEN = 1; // WebSocket.OPEN
 function safeSend(ws, obj) {
+<<<<<<< HEAD
+  if (ws.readyState === WS_OPEN) ws.send(JSON.stringify(obj));
+=======
+<<<<<<< HEAD
+  if (ws.readyState === WS_OPEN) ws.send(JSON.stringify(obj));
+=======
+<<<<<<< HEAD
+  if (ws.readyState === WS_OPEN) ws.send(JSON.stringify(obj));
+=======
   // In the `ws` library, OPEN is a constant on the WebSocket class, not the instance.
   // Using `ws.OPEN` breaks sends because it is undefined.
   if (ws.readyState === 1 /* WebSocket.OPEN */) {
@@ -586,6 +686,9 @@ function safeSend(ws, obj) {
       // Ignore transient socket errors.
     }
   }
+>>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
+>>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
+>>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 }
 
 function broadcast(obj, predicate = () => true) {
