@@ -7,7 +7,12 @@ class VoiceScreen extends StatefulWidget {
   final String authToken;
   final String room;
 
-  const VoiceScreen({super.key, required this.api, required this.authToken, required this.room});
+  const VoiceScreen({
+    super.key,
+    required this.api,
+    required this.authToken,
+    required this.room,
+  });
 
   @override
   State<VoiceScreen> createState() => _VoiceScreenState();
@@ -22,7 +27,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
   @override
   void initState() {
     super.initState();
-    _join();
+    _join(); // <-- метод существует ниже
   }
 
   @override
@@ -31,42 +36,53 @@ class _VoiceScreenState extends State<VoiceScreen> {
     super.dispose();
   }
 
-  
+  String _normalizeLiveKitUrl(String url) {
+    // LiveKit Flutter SDK expects ws/wss URL for signaling.
+    if (url.startsWith('http://')) return 'ws://${url.substring('http://'.length)}';
+    if (url.startsWith('https://')) return 'wss://${url.substring('https://'.length)}';
+    return url;
+  }
 
-String _normalizeLiveKitUrl(String url) {
-  // LiveKit Flutter SDK expects ws/wss URL for signaling.
-  // Allow server to return http/https and normalize it.
-  if (url.startsWith('http://')) return 'ws://' + url.substring('http://'.length);
-  if (url.startsWith('https://')) return 'wss://' + url.substring('https://'.length);
-  return url;
-}
-
-  LocalTrackPublication? _micPublication(Room room) {
+  LocalTrackPublication<LocalAudioTrack>? _micPublication(Room room) {
     final lp = room.localParticipant;
     if (lp == null) return null;
 
-    // In LiveKit Flutter SDK, audioTrackPublications contains LocalTrackPublication(s)
-    // for the currently published microphone track.
+    // В твоём случае это List<LocalTrackPublication<LocalAudioTrack>>
     final pubs = lp.audioTrackPublications;
-    if (pubs.isNotEmpty) return pubs.first;
-    return null;
+    if (pubs.isEmpty) return null;
+
+    // Обычно микрофон — первая публикация
+    return pubs.first;
   }
 
   Future<void> _join() async {
-    setState(() { _connecting = true; _error = null; });
+    setState(() {
+      _connecting = true;
+      _error = null;
+    });
+
     try {
-      final join = await widget.api.joinVoice(authToken: widget.authToken, room: widget.room);
+      final join = await widget.api.joinVoice(
+        authToken: widget.authToken,
+        room: widget.room,
+      );
+
       final room = Room();
 
       await room.connect(_normalizeLiveKitUrl(join.url), join.token);
+
+      // publish mic
       await room.localParticipant?.setMicrophoneEnabled(true);
 
-      // Prefer soft-mute via track publication, so we don't affect the system-wide mic state.
       final pub = _micPublication(room);
-      _micMuted = pub?.muted ?? false;
 
-      setState(() => _room = room);
+      if (!mounted) return;
+      setState(() {
+        _room = room;
+        _micMuted = pub?.muted ?? false;
+      });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = 'Voice error: $e');
     } finally {
       if (mounted) setState(() => _connecting = false);
@@ -76,23 +92,36 @@ String _normalizeLiveKitUrl(String url) {
   Future<void> _toggleMic() async {
     final room = _room;
     if (room == null) return;
-    final pub = _micPublication(room);
 
-    if (pub != null) {
-      pub.muted = !pub.muted;
-      setState(() => _micMuted = pub.muted);
+    final pub = _micPublication(room);
+    if (pub == null) {
+      if (mounted) setState(() => _error = 'Voice error: microphone track is not published yet');
       return;
     }
 
-    // Fallback: if publication isn't available for some reason.
-    final enabled = room.localParticipant?.isMicrophoneEnabled() ?? false;
-    await room.localParticipant?.setMicrophoneEnabled(!enabled);
-    setState(() => _micMuted = enabled);
+    try {
+      final nextMuted = !pub.muted;
+
+      if (nextMuted) {
+        await pub.mute();
+      } else {
+        await pub.unmute();
+      }
+
+      if (mounted) {
+        setState(() {
+          _micMuted = nextMuted;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Mic toggle error: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final participants = _room?.remoteParticipants ?? <String, RemoteParticipant>{};
+
     return Scaffold(
       appBar: AppBar(title: Text('Voice: ${widget.room}')),
       body: Padding(
@@ -103,13 +132,18 @@ String _normalizeLiveKitUrl(String url) {
             if (_connecting) const Text('Connecting...'),
             if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
             const SizedBox(height: 12),
+
             Text('Participants: ${participants.length + (_room?.localParticipant != null ? 1 : 0)}'),
             const SizedBox(height: 12),
+
             Expanded(
               child: ListView(
                 children: [
                   if (_room?.localParticipant != null)
-                    const ListTile(title: Text('(you)'), subtitle: Text('local participant')),
+                    ListTile(
+                      title: const Text('(you)'),
+                      subtitle: Text(_micMuted ? 'mic muted' : 'mic on'),
+                    ),
                   for (final p in participants.values)
                     ListTile(
                       title: Text(p.identity),
@@ -118,6 +152,7 @@ String _normalizeLiveKitUrl(String url) {
                 ],
               ),
             ),
+
             Row(
               children: [
                 ElevatedButton.icon(
@@ -128,6 +163,7 @@ String _normalizeLiveKitUrl(String url) {
                 const SizedBox(width: 8),
                 ElevatedButton(
                   onPressed: () {
+                    _room?.disconnect();
                     Navigator.of(context).pop();
                   },
                   child: const Text('Back'),
