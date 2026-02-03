@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_PASSWORD: example
-      POSTGRES_USER: app
-      POSTGRES_DB: app
+      POSTGRES_PASSWORD: Tesuto12345!
+      POSTGRES_USER: lunarus
+      POSTGRES_DB: lunarus
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped

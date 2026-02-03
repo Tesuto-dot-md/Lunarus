@@ -17,6 +17,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
   Room? _room;
   String? _error;
   bool _connecting = true;
+  bool _micMuted = false;
 
   @override
   void initState() {
@@ -40,6 +41,14 @@ String _normalizeLiveKitUrl(String url) {
   return url;
 }
 
+  LocalTrackPublication<LocalAudioTrack>? _micPublication(Room room) {
+    final lp = room.localParticipant;
+    if (lp == null) return null;
+    final pubs = lp.audioTrackPublications;
+    if (pubs.isEmpty) return null;
+    return pubs.first;
+  }
+
 Future<void> _join() async {
     setState(() { _connecting = true; _error = null; });
     try {
@@ -49,12 +58,40 @@ Future<void> _join() async {
       await room.connect(_normalizeLiveKitUrl(join.url), join.token);
       await room.localParticipant?.setMicrophoneEnabled(true);
 
+      final pub = _micPublication(room);
+      _micMuted = pub?.muted ?? false;
+
       setState(() => _room = room);
     } catch (e) {
       setState(() => _error = 'Voice error: $e');
     } finally {
       if (mounted) setState(() => _connecting = false);
     }
+  }
+
+  Future<void> _toggleMic() async {
+    final room = _room;
+    if (room == null) return;
+    final pub = _micPublication(room);
+
+    // Prefer soft-mute via publication (doesn't toggle system mic state).
+    if (pub != null) {
+      final nextMuted = !pub.muted;
+      if (nextMuted) {
+        await pub.mute();
+      } else {
+        await pub.unmute();
+      }
+      setState(() => _micMuted = nextMuted);
+      return;
+    }
+
+    // Fallback
+    final lp = room.localParticipant;
+    if (lp == null) return;
+    final enabled = lp.isMicrophoneEnabled();
+    await lp.setMicrophoneEnabled(!enabled);
+    setState(() => _micMuted = enabled);
   }
 
   @override
@@ -88,12 +125,14 @@ Future<void> _join() async {
             Row(
               children: [
                 ElevatedButton(
-                  onPressed: _room == null ? null : () async {
-                    final enabled = _room!.localParticipant?.isMicrophoneEnabled() ?? false;
-                    await _room!.localParticipant?.setMicrophoneEnabled(!enabled);
-                    setState(() {});
-                  },
-                  child: const Text('Toggle Mic'),
+                  onPressed: _room == null ? null : _toggleMic,
+                  child: Row(
+                    children: [
+                      Icon(_micMuted ? Icons.mic_off : Icons.mic, size: 18),
+                      const SizedBox(width: 8),
+                      Text(_micMuted ? 'Mic muted' : 'Mic on'),
+                    ],
+                  ),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(

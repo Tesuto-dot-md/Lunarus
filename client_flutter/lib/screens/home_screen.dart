@@ -1,0 +1,531 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:livekit_client/livekit_client.dart';
+
+import '../services/api.dart';
+import 'chat_screen.dart';
+
+enum ChannelType { text, voice }
+
+class Guild {
+  final String id;
+  final String name;
+  final List<Channel> channels;
+  const Guild({required this.id, required this.name, required this.channels});
+}
+
+class Channel {
+  final String id;
+  final String name;
+  final ChannelType type;
+
+  /// For voice channels: LiveKit room name.
+  final String? room;
+
+  /// Optional: chat channel to open when voice channel is selected.
+  final String? linkedChatChannelId;
+
+  const Channel({
+    required this.id,
+    required this.name,
+    required this.type,
+    this.room,
+    this.linkedChatChannelId,
+  });
+}
+
+/// Discord-like shell: left guild rail, middle channel list, right chat.
+/// Voice stays connected while you keep browsing channels and chatting.
+class HomeScreen extends StatefulWidget {
+  final ApiClient api;
+  final String authToken;
+  final String userId;
+
+  const HomeScreen({super.key, required this.api, required this.authToken, required this.userId});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late final List<Guild> _guilds;
+  late Guild _selectedGuild;
+  late Channel _selectedChannel;
+
+  // Voice session state
+  Room? _voiceRoom;
+  String? _voiceRoomName;
+  bool _voiceConnecting = false;
+  String? _voiceError;
+  bool _micMuted = false;
+  // livekit_client's room.events.listen(...) returns an unsubscribe callback
+  // (Future<void> Function()), not a StreamSubscription.
+  Future<void> Function()? _roomUnsub;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // MVP: local mock guilds/channels.
+    // Later we can replace this with API calls (GET /guilds, GET /guilds/:id/channels).
+    _guilds = const [
+      Guild(
+        id: 'lunarus',
+        name: 'Lunarus',
+        channels: [
+          Channel(id: 'general', name: 'general', type: ChannelType.text),
+          Channel(id: 'random', name: 'random', type: ChannelType.text),
+          Channel(
+            id: 'voice-lobby',
+            name: 'Lobby',
+            type: ChannelType.voice,
+            room: 'lobby',
+            linkedChatChannelId: 'lobby-chat',
+          ),
+          Channel(
+            id: 'lobby-chat',
+            name: 'lobby-chat',
+            type: ChannelType.text,
+          ),
+        ],
+      ),
+    ];
+
+    _selectedGuild = _guilds.first;
+    _selectedChannel = _selectedGuild.channels.firstWhere((c) => c.type == ChannelType.text);
+  }
+
+  @override
+  void dispose() {
+    // best-effort unsubscribe (ignore result in dispose)
+    _roomUnsub?.call();
+    _roomUnsub = null;
+    _voiceRoom?.disconnect();
+    super.dispose();
+  }
+
+  String _normalizeLiveKitUrl(String url) {
+    // LiveKit Flutter SDK expects ws/wss URL for signaling.
+    // Allow backend to return http/https and normalize it.
+    if (url.startsWith('http://')) return 'ws://' + url.substring('http://'.length);
+    if (url.startsWith('https://')) return 'wss://' + url.substring('https://'.length);
+    return url;
+  }
+
+  LocalTrackPublication<LocalAudioTrack>? _micPublication(Room room) {
+    final lp = room.localParticipant;
+    if (lp == null) return null;
+    final pubs = lp.audioTrackPublications;
+    if (pubs.isEmpty) return null;
+    return pubs.first;
+  }
+
+  Future<void> _joinVoice(String roomName) async {
+    setState(() {
+      _voiceConnecting = true;
+      _voiceError = null;
+    });
+
+    try {
+      // Disconnect previous
+      await _leaveVoice();
+
+      final join = await widget.api.joinVoice(authToken: widget.authToken, room: roomName);
+      final room = Room();
+      await room.connect(_normalizeLiveKitUrl(join.url), join.token);
+      await room.localParticipant?.setMicrophoneEnabled(true);
+
+      // Prefer soft-mute on the publication (does not toggle system mic state).
+      final pub = _micPublication(room);
+      _micMuted = pub?.muted ?? false;
+
+      _roomUnsub = room.events.listen((_) {
+        // Just trigger rebuild for speaking indicators/participants.
+        if (mounted) setState(() {});
+      });
+
+      setState(() {
+        _voiceRoom = room;
+        _voiceRoomName = roomName;
+      });
+    } catch (e) {
+      setState(() {
+        _voiceError = e.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _voiceConnecting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _leaveVoice() async {
+    // best-effort unsubscribe
+    await _roomUnsub?.call();
+    _roomUnsub = null;
+    await _voiceRoom?.disconnect();
+    _voiceRoom = null;
+    _voiceRoomName = null;
+    _micMuted = false;
+    _voiceError = null;
+  }
+
+  Future<void> _toggleMic() async {
+    final room = _voiceRoom;
+    if (room == null) return;
+    final pub = _micPublication(room);
+
+    // If we can't find a publication yet, fallback to enabling/disabling mic.
+    if (pub == null) {
+      final lp = room.localParticipant;
+      if (lp == null) return;
+      final enabled = lp.isMicrophoneEnabled();
+      await lp.setMicrophoneEnabled(!enabled);
+      setState(() => _micMuted = enabled);
+      return;
+    }
+
+    final nextMuted = !pub.muted;
+    if (nextMuted) {
+      await pub.mute();
+    } else {
+      await pub.unmute();
+    }
+    setState(() => _micMuted = nextMuted);
+  }
+
+  void _selectGuild(Guild g) {
+    setState(() {
+      _selectedGuild = g;
+      _selectedChannel = g.channels.firstWhere((c) => c.type == ChannelType.text, orElse: () => g.channels.first);
+    });
+  }
+
+  Future<void> _selectChannel(Channel c) async {
+    if (c.type == ChannelType.voice) {
+      final roomName = c.room ?? c.id;
+      await _joinVoice(roomName);
+      // Switch chat to the linked chat channel if provided.
+      final linked = c.linkedChatChannelId;
+      if (linked != null) {
+        final chat = _selectedGuild.channels.firstWhere(
+          (x) => x.id == linked,
+          orElse: () => Channel(id: linked, name: linked, type: ChannelType.text),
+        );
+        setState(() => _selectedChannel = chat);
+      }
+      return;
+    }
+
+    setState(() => _selectedChannel = c);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textChannels = _selectedGuild.channels.where((c) => c.type == ChannelType.text).toList();
+    final voiceChannels = _selectedGuild.channels.where((c) => c.type == ChannelType.voice).toList();
+
+    final rightPane = Column(
+      children: [
+        _TopBar(title: '#${_selectedChannel.name}'),
+        Expanded(
+          child: ChatScreen(
+            api: widget.api,
+            authToken: widget.authToken,
+            userId: widget.userId,
+            channelId: _selectedChannel.id,
+            embedded: true,
+          ),
+        ),
+        if (_voiceRoomName != null) _VoiceBar(
+          roomName: _voiceRoomName!,
+          connecting: _voiceConnecting,
+          error: _voiceError,
+          micMuted: _micMuted,
+          participantsCount: (_voiceRoom?.remoteParticipants.length ?? 0) + (_voiceRoom?.localParticipant != null ? 1 : 0),
+          onToggleMic: _toggleMic,
+          onDisconnect: () async {
+            await _leaveVoice();
+            if (mounted) setState(() {});
+          },
+        ),
+      ],
+    );
+
+    return Scaffold(
+      body: SafeArea(
+        child: Row(
+          children: [
+            // Guild rail
+            SizedBox(
+              width: 72,
+              child: _GuildRail(
+                guilds: _guilds,
+                selected: _selectedGuild,
+                onSelect: _selectGuild,
+              ),
+            ),
+            const VerticalDivider(width: 1),
+            // Channels
+            SizedBox(
+              width: 240,
+              child: _ChannelsPane(
+                guildName: _selectedGuild.name,
+                textChannels: textChannels,
+                voiceChannels: voiceChannels,
+                selected: _selectedChannel,
+                onSelect: _selectChannel,
+                voiceActiveRoom: _voiceRoomName,
+              ),
+            ),
+            const VerticalDivider(width: 1),
+            // Chat
+            Expanded(child: rightPane),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TopBar extends StatelessWidget {
+  final String title;
+  const _TopBar({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      alignment: Alignment.centerLeft,
+      child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+    );
+  }
+}
+
+class _GuildRail extends StatelessWidget {
+  final List<Guild> guilds;
+  final Guild selected;
+  final ValueChanged<Guild> onSelect;
+
+  const _GuildRail({required this.guilds, required this.selected, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      children: [
+        for (final g in guilds)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+            child: Tooltip(
+              message: g.name,
+              child: InkWell(
+                onTap: () => onSelect(g),
+                borderRadius: BorderRadius.circular(18),
+                child: Container(
+                  height: 48,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    color: g.id == selected.id ? Colors.white12 : Colors.white10,
+                    border: Border.all(
+                      color: g.id == selected.id ? Colors.white24 : Colors.transparent,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    (g.name.isNotEmpty ? g.name[0] : '?').toUpperCase(),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ChannelsPane extends StatelessWidget {
+  final String guildName;
+  final List<Channel> textChannels;
+  final List<Channel> voiceChannels;
+  final Channel selected;
+  final Future<void> Function(Channel) onSelect;
+  final String? voiceActiveRoom;
+
+  const _ChannelsPane({
+    required this.guildName,
+    required this.textChannels,
+    required this.voiceChannels,
+    required this.selected,
+    required this.onSelect,
+    required this.voiceActiveRoom,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          alignment: Alignment.centerLeft,
+          child: Text(guildName, style: Theme.of(context).textTheme.titleMedium),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            children: [
+              _SectionHeader('Text Channels'),
+              for (final c in textChannels)
+                _ChannelTile(
+                  leading: const Icon(Icons.tag, size: 18),
+                  title: c.name,
+                  selected: c.id == selected.id,
+                  onTap: () => onSelect(c),
+                ),
+              const SizedBox(height: 12),
+              _SectionHeader('Voice Channels'),
+              for (final c in voiceChannels)
+                _ChannelTile(
+                  leading: Icon(
+                    voiceActiveRoom == (c.room ?? c.id) ? Icons.graphic_eq : Icons.volume_up,
+                    size: 18,
+                  ),
+                  title: c.name,
+                  selected: false,
+                  onTap: () => onSelect(c),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String text;
+  const _SectionHeader(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+      child: Text(
+        text.toUpperCase(),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white54),
+      ),
+    );
+  }
+}
+
+class _ChannelTile extends StatelessWidget {
+  final Widget leading;
+  final String title;
+  final bool selected;
+  final VoidCallback onTap;
+  const _ChannelTile({required this.leading, required this.title, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            color: selected ? Colors.white12 : Colors.transparent,
+          ),
+          child: Row(
+            children: [
+              leading,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: selected ? Colors.white : Colors.white70),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VoiceBar extends StatelessWidget {
+  final String roomName;
+  final bool connecting;
+  final String? error;
+  final bool micMuted;
+  final int participantsCount;
+  final Future<void> Function() onToggleMic;
+  final Future<void> Function() onDisconnect;
+
+  const _VoiceBar({
+    required this.roomName,
+    required this.connecting,
+    required this.error,
+    required this.micMuted,
+    required this.participantsCount,
+    required this.onToggleMic,
+    required this.onDisconnect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Colors.white12)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.headset_mic, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Voice: $roomName', overflow: TextOverflow.ellipsis),
+                Text(
+                  error != null
+                      ? 'Error: $error'
+                      : connecting
+                          ? 'Connecting...'
+                          : 'Participants: $participantsCount',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white60),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: micMuted ? 'Unmute mic' : 'Mute mic',
+            onPressed: connecting ? null : () => onToggleMic(),
+            icon: Icon(micMuted ? Icons.mic_off : Icons.mic),
+          ),
+          IconButton(
+            tooltip: 'Disconnect',
+            onPressed: () => onDisconnect(),
+            icon: const Icon(Icons.call_end),
+          ),
+        ],
+      ),
+    );
+  }
+}
