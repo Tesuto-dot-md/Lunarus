@@ -14,6 +14,57 @@ class VoiceJoin {
   VoiceJoin({required this.url, required this.token, required this.room});
 }
 
+class ServerInfo {
+  final String id;
+  final String name;
+  final String? icon; // emoji or url
+  ServerInfo({required this.id, required this.name, required this.icon});
+
+  factory ServerInfo.fromJson(Map<String, dynamic> j) => ServerInfo(
+        id: j['id'].toString(),
+        name: j['name'].toString(),
+        icon: (j['icon'] == null) ? null : j['icon'].toString(),
+      );
+}
+
+class ChannelInfo {
+  final String id;
+  final String serverId;
+  final String name;
+  final String type; // text | voice | forum
+  final int position;
+  final String? icon; // emoji/custom/url
+  final bool nsfw;
+  final bool isPrivate;
+  final String? linkedTextChannelId;
+  final String? room; // voice room name (optional)
+  ChannelInfo({
+    required this.id,
+    required this.serverId,
+    required this.name,
+    required this.type,
+    required this.position,
+    required this.icon,
+    required this.nsfw,
+    required this.isPrivate,
+    required this.linkedTextChannelId,
+    required this.room,
+  });
+
+  factory ChannelInfo.fromJson(Map<String, dynamic> j) => ChannelInfo(
+        id: j['id'].toString(),
+        serverId: j['serverId'].toString(),
+        name: j['name'].toString(),
+        type: (j['type'] ?? 'text').toString(),
+        position: (j['position'] as num?)?.toInt() ?? 0,
+        icon: (j['icon'] == null) ? null : j['icon'].toString(),
+        nsfw: (j['nsfw'] as bool?) ?? false,
+        isPrivate: (j['isPrivate'] as bool?) ?? false,
+        linkedTextChannelId: (j['linkedTextChannelId'] == null) ? null : j['linkedTextChannelId'].toString(),
+        room: (j['room'] == null) ? null : j['room'].toString(),
+      );
+}
+
 class ChatMessage {
   final String id;
   final String channelId;
@@ -179,7 +230,61 @@ class ApiClient {
     return items.map(TenorGifItem.fromJson).toList();
   }
 
-  Future<VoiceJoin> joinVoice({required String authToken, required String room}) async {
+    Future<List<ServerInfo>> getServers({required String authToken}) async {
+    final r = await http.get(
+      _u('/servers'),
+      headers: {'authorization': 'Bearer $authToken'},
+    );
+    if (r.statusCode != 200) throw Exception('getServers failed: ${r.statusCode} ${r.body}');
+    final j = jsonDecode(r.body) as Map<String, dynamic>;
+    final items = (j['items'] as List).cast<Map<String, dynamic>>();
+    return items.map(ServerInfo.fromJson).toList();
+  }
+
+  Future<List<ChannelInfo>> getServerChannels({required String authToken, required String serverId}) async {
+    final r = await http.get(
+      _u('/servers/$serverId/channels'),
+      headers: {'authorization': 'Bearer $authToken'},
+    );
+    if (r.statusCode != 200) throw Exception('getServerChannels failed: ${r.statusCode} ${r.body}');
+    final j = jsonDecode(r.body) as Map<String, dynamic>;
+    final items = (j['items'] as List).cast<Map<String, dynamic>>();
+    return items.map(ChannelInfo.fromJson).toList();
+  }
+
+  Future<ChannelInfo> patchChannel({
+    required String authToken,
+    required String channelId,
+    String? name,
+    String? icon,
+    bool? nsfw,
+    bool? isPrivate,
+    String? type,
+    int? position,
+    String? linkedTextChannelId,
+    String? room,
+  }) async {
+    final payload = <String, dynamic>{};
+    if (name != null) payload['name'] = name;
+    if (icon != null) payload['icon'] = icon;
+    if (nsfw != null) payload['nsfw'] = nsfw;
+    if (isPrivate != null) payload['isPrivate'] = isPrivate;
+    if (type != null) payload['type'] = type;
+    if (position != null) payload['position'] = position;
+    if (linkedTextChannelId != null) payload['linkedTextChannelId'] = linkedTextChannelId;
+    if (room != null) payload['room'] = room;
+
+    final r = await http.patch(
+      _u('/channels/$channelId'),
+      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+      body: jsonEncode(payload),
+    );
+    if (r.statusCode != 200) throw Exception('patchChannel failed: ${r.statusCode} ${r.body}');
+    final j = jsonDecode(r.body) as Map<String, dynamic>;
+    return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
+  }
+
+Future<VoiceJoin> joinVoice({required String authToken, required String room}) async {
     final r = await http.post(
       _u('/voice/join'),
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},

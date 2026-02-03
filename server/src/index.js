@@ -68,6 +68,51 @@ function authMiddleware(req, res, next) {
 
 async function ensureSchema() {
   if (!pool) return;
+
+  // Servers (guilds)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS servers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      icon TEXT,
+      owner_id TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    );
+  `);
+
+  // Membership
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS server_members (
+      server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      nickname TEXT,
+      joined_at BIGINT NOT NULL,
+      PRIMARY KEY(server_id, user_id)
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_server_members_user ON server_members(user_id);`);
+
+  // Channels
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS channels (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'text', -- text | voice | forum
+      position INT NOT NULL DEFAULT 0,
+      icon TEXT, -- emoji, custom emoji code, or URL
+      nsfw BOOLEAN NOT NULL DEFAULT false,
+      is_private BOOLEAN NOT NULL DEFAULT false,
+      linked_text_channel_id TEXT,
+      room TEXT,
+      created_at BIGINT NOT NULL
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_channels_server_pos ON channels(server_id, position);`);
+  // Backward-compatible migrations
+  await pool.query(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS room TEXT;`);
+
+  // Messages
   await pool.query(`
     CREATE TABLE IF NOT EXISTS messages (
       id BIGSERIAL PRIMARY KEY,
@@ -80,6 +125,33 @@ async function ensureSchema() {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_messages_channel_ts ON messages(channel_id, ts);`);
+
+  // Seed default server + channels (migration from "single server" world)
+  const now = Date.now();
+  await pool.query(
+    `INSERT INTO servers(id, name, icon, owner_id, created_at)
+     VALUES ('lunarus', 'Lunarus', NULL, 'system', $1)
+     ON CONFLICT (id) DO NOTHING`,
+    [now]
+  );
+
+  // Default channels. We keep ids stable because messages.channel_id is TEXT.
+  const seedChannels = [
+    { id: 'general', name: 'general', type: 'text', position: 10, icon: '#', nsfw: false, is_private: false, linked: null, room: null },
+    { id: 'random', name: 'random', type: 'text', position: 20, icon: '#', nsfw: false, is_private: false, linked: null, room: null },
+    { id: 'voice-lobby', name: 'Lobby', type: 'voice', position: 30, icon: '🔊', nsfw: false, is_private: false, linked: 'lobby-chat', room: 'lobby' },
+    // Text chat that lives inside the voice channel (not necessarily shown in client channel list)
+    { id: 'lobby-chat', name: 'lobby-chat', type: 'text', position: 31, icon: '#', nsfw: false, is_private: false, linked: null, room: null },
+  ];
+
+  for (const c of seedChannels) {
+    await pool.query(
+      `INSERT INTO channels(id, server_id, name, type, position, icon, nsfw, is_private, linked_text_channel_id, room, created_at)
+       VALUES ($1, 'lunarus', $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (id) DO NOTHING`,
+      [c.id, c.name, c.type, c.position, c.icon, c.nsfw, c.is_private, c.linked, c.room, now]
+    );
+  }
 }
 
 function toClientMessage(row) {
@@ -112,11 +184,113 @@ function getPublicBaseUrl(req) {
 // --- Routes ---
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-app.post('/auth/login', (req, res) => {
+app.post('/auth/login', async (req, res) => {
   const { username } = req.body ?? {};
   const user = { id: String(username ?? 'user'), username: String(username ?? 'user') };
   const token = signJwt({ sub: user.id, username: user.username });
+
+  // Auto-join default server in the "single server" migration world.
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO server_members(server_id, user_id, nickname, joined_at)
+         VALUES ('lunarus', $1, NULL, $2)
+         ON CONFLICT (server_id, user_id) DO NOTHING`,
+        [user.id, Date.now()]
+      );
+    } catch (e) {
+      console.warn('[WARN] failed to upsert server_members during login', e);
+    }
+  }
+
   res.json({ token, user });
+});
+
+// ------------------------------------------------------------
+// Servers (guilds) + channels
+// ------------------------------------------------------------
+
+app.get('/servers', authMiddleware, async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+  const userId = String(req.user?.sub);
+
+  // Ensure membership exists for default server.
+  await pool.query(
+    `INSERT INTO server_members(server_id, user_id, nickname, joined_at)
+     VALUES ('lunarus', $1, NULL, $2)
+     ON CONFLICT (server_id, user_id) DO NOTHING`,
+    [userId, Date.now()]
+  );
+
+  const r = await pool.query(
+    `SELECT s.id, s.name, s.icon, s.owner_id AS "ownerId", s.created_at AS "createdAt"
+       FROM servers s
+       JOIN server_members m ON m.server_id = s.id
+      WHERE m.user_id = $1
+      ORDER BY s.created_at ASC`,
+    [userId]
+  );
+  res.json({ items: r.rows });
+});
+
+app.get('/servers/:serverId/channels', authMiddleware, async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+  const serverId = String(req.params.serverId);
+  const userId = String(req.user?.sub);
+
+  const m = await pool.query(
+    `SELECT 1 FROM server_members WHERE server_id = $1 AND user_id = $2`,
+    [serverId, userId]
+  );
+  if (m.rowCount === 0) return res.status(403).json({ error: 'not a member' });
+
+  const r = await pool.query(
+    `SELECT id, server_id AS "serverId", name, type, position, icon, nsfw, is_private AS "isPrivate", linked_text_channel_id AS "linkedTextChannelId", room, created_at AS "createdAt"
+       FROM channels
+      WHERE server_id = $1
+      ORDER BY position ASC, created_at ASC`,
+    [serverId]
+  );
+  res.json({ items: r.rows });
+});
+
+// Update channel metadata (icon, flags, name, type)
+app.patch('/channels/:channelId', authMiddleware, async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'db not configured' });
+  const channelId = String(req.params.channelId);
+  const userId = String(req.user?.sub);
+
+  const ch = await pool.query(`SELECT * FROM channels WHERE id = $1`, [channelId]);
+  if (ch.rowCount === 0) return res.status(404).json({ error: 'channel not found' });
+
+  const serverId = String(ch.rows[0].server_id);
+  const isMember = await pool.query(`SELECT 1 FROM server_members WHERE server_id=$1 AND user_id=$2`, [serverId, userId]);
+  if (isMember.rowCount === 0) return res.status(403).json({ error: 'not a member' });
+
+  // For now, allow any member to edit metadata. Later: roles/permissions.
+  const { name, icon, nsfw, isPrivate, type, position, linkedTextChannelId, room } = req.body ?? {};
+
+  const nextName = (name !== undefined) ? String(name) : String(ch.rows[0].name);
+  const nextIcon = (icon !== undefined) ? (icon === null ? null : String(icon)) : ch.rows[0].icon;
+  const nextNsfw = (nsfw !== undefined) ? Boolean(nsfw) : Boolean(ch.rows[0].nsfw);
+  const nextPrivate = (isPrivate !== undefined) ? Boolean(isPrivate) : Boolean(ch.rows[0].is_private);
+  const nextType = (type !== undefined) ? String(type) : String(ch.rows[0].type);
+  const nextPos = (position !== undefined && Number.isFinite(Number(position))) ? Number(position) : Number(ch.rows[0].position ?? 0);
+  const nextLinked = (linkedTextChannelId !== undefined) ? (linkedTextChannelId === null ? null : String(linkedTextChannelId)) : ch.rows[0].linked_text_channel_id;
+  const nextRoom = (room !== undefined) ? (room === null ? null : String(room)) : ch.rows[0].room;
+
+  const allowedTypes = new Set(['text', 'voice', 'forum']);
+  if (!allowedTypes.has(nextType)) return res.status(400).json({ error: 'bad type' });
+
+  const r = await pool.query(
+    `UPDATE channels
+        SET name=$2, icon=$3, nsfw=$4, is_private=$5, type=$6, position=$7, linked_text_channel_id=$8, room=$9
+      WHERE id=$1
+    RETURNING id, server_id AS "serverId", name, type, position, icon, nsfw, is_private AS "isPrivate", linked_text_channel_id AS "linkedTextChannelId", room, created_at AS "createdAt"`,
+    [channelId, nextName, nextIcon, nextNsfw, nextPrivate, nextType, nextPos, nextLinked, nextRoom]
+  );
+
+  res.json({ ok: true, item: r.rows[0] });
 });
 
 // ------------------------------------------------------------
