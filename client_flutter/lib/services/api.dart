@@ -93,86 +93,29 @@ class ApiClient {
   }
 
   Future<List<ChatMessage>> getMessages({required String authToken, required String channelId}) async {
-<<<<<<< HEAD
     final r = await http.get(
       _u('/channels/$channelId/messages'),
       headers: {'authorization': 'Bearer $authToken'},
     );
     if (r.statusCode != 200) throw Exception('getMessages failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
-=======
-    // Prefer Discord-like endpoint, but keep legacy /messages for compatibility.
-    Future<http.Response> doGet(String path) => http.get(
-          _u(path),
-          headers: {'authorization': 'Bearer $authToken'},
-        );
-
-    http.Response r = await doGet('/channels/$channelId/messages?limit=50');
-    if (r.statusCode == 404) {
-      // Fallback to older endpoint.
-      r = await doGet('/messages?channelId=$channelId&limit=50');
-    }
-
-    if (r.statusCode != 200) {
-      throw Exception('getMessages failed: ${r.statusCode} ${r.body}');
-    }
-
-    final body = r.body.trim();
-    if (body.isEmpty) return <ChatMessage>[];
-
-    final j = jsonDecode(body) as Map<String, dynamic>;
->>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(ChatMessage.fromJson).toList();
   }
 
-  Future<ChatMessage> sendMessage({
+  Future<void> sendMessage({
     required String authToken,
     required String channelId,
     required String content,
     String kind = 'text',
     Map<String, dynamic>? media,
   }) async {
-<<<<<<< HEAD
     final r = await http.post(
       _u('/channels/$channelId/messages'),
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
       body: jsonEncode({'content': content, 'kind': kind, 'media': media}),
-<<<<<<< HEAD
-=======
-=======
-    Future<http.Response> doPost(String path, Map<String, dynamic> payload) => http.post(
-          _u(path),
-          headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
-          body: jsonEncode(payload),
-        );
-
-    // Prefer Discord-like endpoint.
-    http.Response r = await doPost(
-      '/channels/$channelId/messages',
-      {'content': content, 'kind': kind, 'media': media},
->>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
->>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
     );
-    if (r.statusCode == 404) {
-      // Fallback to older endpoint.
-      r = await doPost(
-        '/messages',
-        {'channelId': channelId, 'content': content, 'kind': kind, 'media': media},
-      );
-    }
     if (r.statusCode != 200) throw Exception('sendMessage failed: ${r.statusCode} ${r.body}');
-    final body = r.body.trim();
-    if (body.isEmpty) {
-      // Older servers may respond empty; return a synthetic message.
-      return ChatMessage(id: '0', channelId: channelId, authorId: 'me', content: content, kind: kind, media: media, ts: DateTime.now().millisecondsSinceEpoch);
-    }
-    final j = jsonDecode(body) as Map<String, dynamic>;
-    if (j['item'] is Map) {
-      return ChatMessage.fromJson((j['item'] as Map).cast<String, dynamic>());
-    }
-    // Fallback: no item field.
-    return ChatMessage(id: '0', channelId: channelId, authorId: 'me', content: content, kind: kind, media: media, ts: DateTime.now().millisecondsSinceEpoch);
   }
 
   Future<UploadResult> uploadFile({required String authToken, required String filePath}) async {

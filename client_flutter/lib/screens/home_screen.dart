@@ -199,7 +199,6 @@ Future<void> _leaveVoice({bool clearUi = true}) async {
     setState(() => _micMuted = nextMuted);
   }
 
-<<<<<<< HEAD
 
 void _selectGuild(Guild g) {
   setState(() {
@@ -218,25 +217,10 @@ Future<void> _selectChannel(Channel c) async {
     await _joinVoice(roomName: roomName, chatChannelId: chatChannelId);
     if (mounted) {
       setState(() => _selectedChannel = c);
-=======
-  void _selectGuild(Guild g) {
-    setState(() {
-      _selectedGuild = g;
-      _selectedChannel = g.channels.firstWhere((c) => c.type == ChannFuture<void> _selectChannel(Channel c) async {
-    if (c.type == ChannelType.voice) {
-      final roomName = c.room ?? c.id;
-      final chatChannelId = c.linkedChatChannelId ?? c.id;
-      await _joinVoice(roomName: roomName, chatChannelId: chatChannelId);
-      if (mounted) {
-        setState(() => _selectedChannel = c);
-      }
-      return;
->>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
     }
     return;
   }
 
-<<<<<<< HEAD
   setState(() => _selectedChannel = c);
 }
 
@@ -295,62 +279,6 @@ void _openVoiceChatSheet() {
   );
 }
 
-=======
-  void _openVoiceChatSheet() {
-    final chatChannelId = _voiceChatChannelId;
-    if (chatChannelId == null) return;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.75,
-        minChildSize: 0.35,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) => Material(
-          child: Column(
-            children: [
-              Container(
-                height: 44,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  children: [
-                    const Icon(Icons.chat_bubble_outline, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text('Voice chat', style: Theme.of(context).textTheme.titleSmall)),
-                    IconButton(
-                      tooltip: 'Close',
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: ChatScreen(
-                  api: widget.api,
-                  authToken: widget.authToken,
-                  userId: widget.userId,
-                  channelId: chatChannelId,
-                  embedded: true,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-}
-
-    setState(() => _selectedChannel = c);
-  }
->>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
 
   @override
   Widget build(BuildContext context) {
