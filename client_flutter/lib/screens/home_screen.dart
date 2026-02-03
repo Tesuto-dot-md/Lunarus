@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:livekit_client/livekit_client.dart';
 
 import '../services/api.dart';
@@ -209,6 +209,32 @@ Future<void> _leaveVoice({bool clearUi = true}) async {
   }
 
 
+  Future<void> _refreshVoicePresence() async {
+    // Fetch participants for each voice room so we can render them under the voice channel (Discord-like).
+    final guild = _selectedGuild;
+    final voiceChannels = guild.channels.where((c) => c.type == ChannelType.voice).toList();
+    if (voiceChannels.isEmpty) return;
+
+    final next = <String, List<VoiceParticipant>>{};
+    for (final c in voiceChannels) {
+      final room = c.room ?? c.id;
+      try {
+        final items = await widget.api.getVoiceParticipants(
+          authToken: widget.authToken,
+          room: room,
+        );
+        next[room] = items;
+      } catch (_) {
+        // Keep the previous list on transient errors.
+        next[room] = _voicePresence[room] ?? const <VoiceParticipant>[];
+      }
+    }
+
+    if (!mounted) return;
+    setState(() => _voicePresence = next);
+  }
+
+
 void _selectGuild(Guild g) {
   setState(() {
     _selectedGuild = g;
@@ -223,7 +249,6 @@ Future<void> _selectChannel(Channel c) async {
   if (c.type == ChannelType.voice) {
     final roomName = c.room ?? c.id;
     final chatChannelId = c.linkedChatChannelId ?? c.id;
-<<<<<<< HEAD
 
     // If we're already connected (or connecting) to this voice room, don't reconnect.
     if (_voiceRoomName == roomName &&
@@ -234,12 +259,6 @@ Future<void> _selectChannel(Channel c) async {
 
     await _joinVoice(roomName: roomName, chatChannelId: chatChannelId);
     if (mounted) setState(() => _selectedChannel = c);
-=======
-    await _joinVoice(roomName: roomName, chatChannelId: chatChannelId);
-    if (mounted) {
-      setState(() => _selectedChannel = c);
-    }
->>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
     return;
   }
 
@@ -580,21 +599,11 @@ class _ChannelsPane extends StatelessWidget {
               const SizedBox(height: 12),
               _SectionHeader('Voice Channels'),
               for (final c in voiceChannels)
-<<<<<<< HEAD
                 _VoiceChannelTileWithPresence(
                   channel: c,
                   selected: c.id == selected.id,
                   activeRoom: voiceActiveRoom,
                   participants: voicePresence[c.room ?? c.id] ?? const [],
-=======
-                _ChannelTile(
-                  leading: Icon(
-                    voiceActiveRoom == (c.room ?? c.id) ? Icons.graphic_eq : Icons.volume_up,
-                    size: 18,
-                  ),
-                  title: c.name,
-                  selected: c.id == selected.id,
->>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
                   onTap: () => onSelect(c),
                 ),
             ],

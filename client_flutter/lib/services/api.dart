@@ -154,30 +154,7 @@ class ApiClient {
     return items.map(TenorGifItem.fromJson).toList();
   }
 
-  Future<VoiceJoin> joinVoice({required String authToken, required String room}
-
-Future<List<VoiceParticipant>> getVoiceParticipants({
-  required String authToken,
-  required String room,
-}) async {
-  final r = await http.get(
-    _u('/voice/rooms/$room/participants'),
-    headers: {'authorization': 'Bearer $authToken'},
-  );
-
-  if (r.statusCode == 200) {
-    final j = jsonDecode(r.body.isEmpty ? '{}' : r.body) as Map<String, dynamic>;
-    final items = (j['items'] as List?) ?? const [];
-    return items
-        .whereType<Map>()
-        .map((e) => VoiceParticipant.fromJson(Map<String, dynamic>.from(e)))
-        .toList();
-  }
-
-  if (r.statusCode == 404) return const <VoiceParticipant>[];
-  throw Exception('getVoiceParticipants failed: ${r.statusCode} ${r.body}');
-}
-) async {
+  Future<VoiceJoin> joinVoice({required String authToken, required String room}) async {
     final r = await http.post(
       _u('/voice/join'),
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
@@ -186,5 +163,27 @@ Future<List<VoiceParticipant>> getVoiceParticipants({
     if (r.statusCode != 200) throw Exception('voice/join failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
     return VoiceJoin(url: j['url'].toString(), token: j['token'].toString(), room: j['room'].toString());
+  }
+
+  Future<List<VoiceParticipant>> getVoiceParticipants({
+    required String authToken,
+    required String room,
+  }) async {
+    final r = await http.get(
+      _u('/voice/rooms/$room/participants'),
+      headers: {'authorization': 'Bearer $authToken'},
+    );
+
+    if (r.statusCode == 200) {
+      final j = jsonDecode(r.body.isEmpty ? '{}' : r.body) as Map<String, dynamic>;
+      final items = (j['items'] as List?) ?? const [];
+      return items
+          .whereType<Map>()
+          .map((e) => VoiceParticipant.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    }
+
+    if (r.statusCode == 404) return const <VoiceParticipant>[];
+    throw Exception('getVoiceParticipants failed: ${r.statusCode} ${r.body}');
   }
 }
