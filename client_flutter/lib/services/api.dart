@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 
 /// Human-friendly API error.
@@ -51,7 +52,13 @@ class InvitePreview {
   final String serverName;
   final String? serverIcon;
   final String? channelId;
-  InvitePreview({required this.code, required this.serverId, required this.serverName, required this.serverIcon, required this.channelId});
+  InvitePreview({
+    required this.code,
+    required this.serverId,
+    required this.serverName,
+    required this.serverIcon,
+    required this.channelId,
+  });
 
   factory InvitePreview.fromJson(Map<String, dynamic> j) => InvitePreview(
         code: j['code'].toString(),
@@ -166,7 +173,7 @@ class ApiClient {
   String _snip(String s, {int max = 400}) {
     final t = s.trim();
     if (t.length <= max) return t;
-    return t.substring(0, max) + '…';
+    return '${t.substring(0, max)}…';
   }
 
   void _ensureOk(http.Response r, String ctx) {
@@ -196,12 +203,13 @@ class ApiClient {
     _ensureOk(r, 'login');
     final j = (_decodeJson(r, 'login') as Map).cast<String, dynamic>();
     final token = j['token'] as String;
-    final user = (j['user'] as Map<String, dynamic>);
+    final user = (j['user'] as Map).cast<String, dynamic>();
     return LoginResult(token: token, userId: user['id'].toString());
   }
 
+  // ---- Messages ----
+
   Future<List<ChatMessage>> getMessages({required String authToken, required String channelId}) async {
-    // Prefer Discord-like endpoint, but keep legacy /messages for compatibility.
     Future<http.Response> doGet(String path) => http.get(
           _u(path),
           headers: {'authorization': 'Bearer $authToken'},
@@ -209,17 +217,16 @@ class ApiClient {
 
     http.Response r = await doGet('/channels/$channelId/messages?limit=50');
     if (r.statusCode == 404) {
-      // Fallback to older endpoint.
       r = await doGet('/messages?channelId=$channelId&limit=50');
     }
-
     _ensureOk(r, 'getMessages');
 
     final body = r.body.trim();
     if (body.isEmpty) return <ChatMessage>[];
 
     final j = (_decodeJson(r, 'getMessages') as Map).cast<String, dynamic>();
-    final items = (j['items'] as List).cast<Map<String, dynamic>>();
+    final itemsRaw = (j['items'] as List? ?? const <dynamic>[]);
+    final items = itemsRaw.map((e) => (e as Map).cast<String, dynamic>()).toList();
     return items.map(ChatMessage.fromJson).toList();
   }
 
@@ -236,31 +243,48 @@ class ApiClient {
           body: jsonEncode(payload),
         );
 
-    // Prefer Discord-like endpoint.
     http.Response r = await doPost(
       '/channels/$channelId/messages',
       {'content': content, 'kind': kind, 'media': media},
     );
     if (r.statusCode == 404) {
-      // Fallback to older endpoint.
       r = await doPost(
         '/messages',
         {'channelId': channelId, 'content': content, 'kind': kind, 'media': media},
       );
     }
-    if (r.statusCode != 200) throw Exception('sendMessage failed: ${r.statusCode} ${r.body}');
+    _ensureOk(r, 'sendMessage');
+
     final body = r.body.trim();
     if (body.isEmpty) {
       // Older servers may respond empty; return a synthetic message.
-      return ChatMessage(id: '0', channelId: channelId, authorId: 'me', content: content, kind: kind, media: media, ts: DateTime.now().millisecondsSinceEpoch);
+      return ChatMessage(
+        id: '0',
+        channelId: channelId,
+        authorId: 'me',
+        content: content,
+        kind: kind,
+        media: media,
+        ts: DateTime.now().millisecondsSinceEpoch,
+      );
     }
-    final j = jsonDecode(body) as Map<String, dynamic>;
+
+    final j = (_decodeJson(r, 'sendMessage') as Map).cast<String, dynamic>();
     if (j['item'] is Map) {
       return ChatMessage.fromJson((j['item'] as Map).cast<String, dynamic>());
     }
-    // Fallback: no item field.
-    return ChatMessage(id: '0', channelId: channelId, authorId: 'me', content: content, kind: kind, media: media, ts: DateTime.now().millisecondsSinceEpoch);
+    return ChatMessage(
+      id: '0',
+      channelId: channelId,
+      authorId: 'me',
+      content: content,
+      kind: kind,
+      media: media,
+      ts: DateTime.now().millisecondsSinceEpoch,
+    );
   }
+
+  // ---- Uploads / GIFs ----
 
   Future<UploadResult> uploadFile({required String authToken, required String filePath}) async {
     final req = http.MultipartRequest('POST', _u('/upload'));
@@ -269,11 +293,14 @@ class ApiClient {
 
     final resp = await req.send();
     final body = await resp.stream.bytesToString();
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw ApiException('upload failed', statusCode: resp.statusCode, bodySnippet: _snip(body));
-    }
-    final j = (_decodeJson(http.Response(body, resp.statusCode), 'upload') as Map).cast<String, dynamic>();
-    return UploadResult(url: j['url'].toString(), mime: j['mime'].toString(), size: (j['size'] as num).toInt());
+    final r = http.Response(body, resp.statusCode);
+    _ensureOk(r, 'upload');
+    final j = (_decodeJson(r, 'upload') as Map).cast<String, dynamic>();
+    return UploadResult(
+      url: j['url'].toString(),
+      mime: j['mime'].toString(),
+      size: (j['size'] as num).toInt(),
+    );
   }
 
   Future<List<TenorGifItem>> tenorSearch({required String authToken, required String q, int limit = 16}) async {
@@ -283,26 +310,34 @@ class ApiClient {
     );
     _ensureOk(r, 'tenorSearch');
     final j = (_decodeJson(r, 'tenorSearch') as Map).cast<String, dynamic>();
-    final items = (j['items'] as List).cast<Map<String, dynamic>>();
+    final itemsRaw = (j['items'] as List? ?? const <dynamic>[]);
+    final items = itemsRaw.map((e) => (e as Map).cast<String, dynamic>()).toList();
     return items.map(TenorGifItem.fromJson).toList();
   }
 
-  Future<List<ServerInfo>> getServers({required String authToken}) async {
-  Future<List<ServerInfo>> getServers({required String authToken}) async {
+  // ---- Servers / Channels / Invites ----
 
+  Future<List<ServerInfo>> getServers({required String authToken}) async {
     final r = await http.get(
       _u('/servers'),
       headers: {'authorization': 'Bearer $authToken'},
     );
-
-    if (r.statusCode != 200) throw Exception('getServers failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
-
     _ensureOk(r, 'getServers');
     final j = (_decodeJson(r, 'getServers') as Map).cast<String, dynamic>();
-
-    final items = (j['items'] as List).cast<Map<String, dynamic>>();
+    final itemsRaw = (j['items'] as List? ?? const <dynamic>[]);
+    final items = itemsRaw.map((e) => (e as Map).cast<String, dynamic>()).toList();
     return items.map(ServerInfo.fromJson).toList();
+  }
+
+  Future<ServerInfo> createServer({required String authToken, required String name, String? icon}) async {
+    final r = await http.post(
+      _u('/servers'),
+      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+      body: jsonEncode({'name': name, 'icon': icon}),
+    );
+    _ensureOk(r, 'createServer');
+    final j = (_decodeJson(r, 'createServer') as Map).cast<String, dynamic>();
+    return ServerInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
   Future<List<ChannelInfo>> getServerChannels({required String authToken, required String serverId}) async {
@@ -310,12 +345,30 @@ class ApiClient {
       _u('/servers/$serverId/channels'),
       headers: {'authorization': 'Bearer $authToken'},
     );
-    if (r.statusCode != 200) throw Exception('getServerChannels failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
     _ensureOk(r, 'getServerChannels');
     final j = (_decodeJson(r, 'getServerChannels') as Map).cast<String, dynamic>();
-    final items = (j['items'] as List).cast<Map<String, dynamic>>();
+    final itemsRaw = (j['items'] as List? ?? const <dynamic>[]);
+    final items = itemsRaw.map((e) => (e as Map).cast<String, dynamic>()).toList();
     return items.map(ChannelInfo.fromJson).toList();
+  }
+
+  Future<ChannelInfo> createChannel({
+    required String authToken,
+    required String serverId,
+    required String name,
+    required String type,
+    String? icon,
+    bool nsfw = false,
+    bool isPrivate = false,
+  }) async {
+    final r = await http.post(
+      _u('/servers/$serverId/channels'),
+      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+      body: jsonEncode({'name': name, 'type': type, 'icon': icon, 'nsfw': nsfw, 'isPrivate': isPrivate}),
+    );
+    _ensureOk(r, 'createChannel');
+    final j = (_decodeJson(r, 'createChannel') as Map).cast<String, dynamic>();
+    return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
   Future<ChannelInfo> patchChannel({
@@ -345,30 +398,31 @@ class ApiClient {
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
       body: jsonEncode(payload),
     );
-    if (r.statusCode != 200) throw Exception('patchChannel failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
     _ensureOk(r, 'patchChannel');
     final j = (_decodeJson(r, 'patchChannel') as Map).cast<String, dynamic>();
     return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
-  // --- Servers / Invites / Channels ---
-
-  Future<ServerInfo> createServer({required String authToken, required String name, String? icon}) async {
-    final r = await http.post(
-      _u('/servers'),
-      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
-      body: jsonEncode({'name': name, 'icon': icon}),
+  Future<void> deleteChannel({required String authToken, required String channelId}) async {
+    final r = await http.delete(
+      _u('/channels/$channelId'),
+      headers: {'authorization': 'Bearer $authToken'},
     );
-    if (r.statusCode != 200) throw Exception('createServer failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
-    _ensureOk(r, 'createServer');
-    final j = (_decodeJson(r, 'createServer') as Map).cast<String, dynamic>();
-    return ServerInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
+    _ensureOk(r, 'deleteChannel');
+  }
+
+  Future<String> createInvite({required String authToken, required String serverId, String? channelId}) async {
+    final r = await http.post(
+      _u('/servers/$serverId/invites'),
+      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
+      body: jsonEncode({'channelId': channelId}),
+    );
+    _ensureOk(r, 'createInvite');
+    final j = (_decodeJson(r, 'createInvite') as Map).cast<String, dynamic>();
+    return (j['item'] as Map)['code'].toString();
   }
 
   Future<InvitePreview> getInvitePreview({required String authToken, required String codeOrUrl}) async {
-    // Accept raw code or full link; extract last path segment.
     final raw = codeOrUrl.trim();
     String code = raw;
     try {
@@ -380,8 +434,6 @@ class ApiClient {
       _u('/invites/$code'),
       headers: {'authorization': 'Bearer $authToken'},
     );
-    if (r.statusCode != 200) throw Exception('invite preview failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
     _ensureOk(r, 'getInvitePreview');
     final j = (_decodeJson(r, 'getInvitePreview') as Map).cast<String, dynamic>();
     return InvitePreview.fromJson((j['item'] as Map).cast<String, dynamic>());
@@ -400,55 +452,12 @@ class ApiClient {
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
       body: jsonEncode({}),
     );
-    if (r.statusCode != 200) throw Exception('joinInvite failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
     _ensureOk(r, 'joinInvite');
     final j = (_decodeJson(r, 'joinInvite') as Map).cast<String, dynamic>();
     return ServerInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
-  Future<String> createInvite({required String authToken, required String serverId, String? channelId}) async {
-    final r = await http.post(
-      _u('/servers/$serverId/invites'),
-      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
-      body: jsonEncode({'channelId': channelId}),
-    );
-    if (r.statusCode != 200) throw Exception('createInvite failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
-    _ensureOk(r, 'createInvite');
-    final j = (_decodeJson(r, 'createInvite') as Map).cast<String, dynamic>();
-    return (j['item'] as Map)['code'].toString();
-  }
-
-  Future<ChannelInfo> createChannel({
-    required String authToken,
-    required String serverId,
-    required String name,
-    required String type,
-    String? icon,
-    bool nsfw = false,
-    bool isPrivate = false,
-  }) async {
-    final r = await http.post(
-      _u('/servers/$serverId/channels'),
-      headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
-      body: jsonEncode({'name': name, 'type': type, 'icon': icon, 'nsfw': nsfw, 'isPrivate': isPrivate}),
-    );
-    if (r.statusCode != 200) throw Exception('createChannel failed: ${r.statusCode} ${r.body}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
-    _ensureOk(r, 'createChannel');
-    final j = (_decodeJson(r, 'createChannel') as Map).cast<String, dynamic>();
-    return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
-  }
-
-  Future<void> deleteChannel({required String authToken, required String channelId}) async {
-    final r = await http.delete(
-      _u('/channels/$channelId'),
-      headers: {'authorization': 'Bearer $authToken'},
-    );
-    if (r.statusCode != 200) throw Exception('deleteChannel failed: ${r.statusCode} ${r.body}');
-    _ensureOk(r, 'deleteChannel');
-  }
+  // ---- Voice ----
 
   Future<VoiceJoin> joinVoice({required String authToken, required String room}) async {
     final r = await http.post(
