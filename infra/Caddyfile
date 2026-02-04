@@ -1,31 +1,29 @@
+{
+	email admin@lunarus.ru
+}
+
 api.lunarus.ru {
 
-  encode zstd gzip
+	encode gzip zstd
 
-  # WebSocket gateway
-  reverse_proxy /gateway server:8080
+	# HTTP API
+	reverse_proxy /health* http://lunarus-server:8080
+	reverse_proxy /auth/* http://lunarus-server:8080
+	reverse_proxy /servers* http://lunarus-server:8080
+	reverse_proxy /channels* http://lunarus-server:8080
+	reverse_proxy /messages* http://lunarus-server:8080
+	reverse_proxy /upload* http://lunarus-server:8080
+	reverse_proxy /tenor/* http://lunarus-server:8080
+	reverse_proxy /voice/* http://lunarus-server:8080
+	reverse_proxy /invites/* http://lunarus-server:8080
 
-  # REST API
-  reverse_proxy /auth/* server:8080
+	# WebSocket gateway
+	reverse_proxy /gateway* http://lunarus-server:8080 {
+		header_up Connection {http.request.header.Connection}
+		header_up Upgrade {http.request.header.Upgrade}
+	}
 
-  reverse_proxy /users* server:8080
-  reverse_proxy /servers* server:8080
-  reverse_proxy /invites* server:8080
-
-  # Legacy path kept for compatibility with older clients
-  reverse_proxy /guilds* server:8080
-
-  # Servers (guilds) + related endpoints
-  reverse_proxy /servers* server:8080
-  reverse_proxy /invites* server:8080
-
-  # Channels + messages
-  reverse_proxy /channels* server:8080
-  reverse_proxy /voice/* server:8080
-  reverse_proxy /upload* server:8080
-  reverse_proxy /tenor/* server:8080
-
-  # LiveKit
-  reverse_proxy /rtc* livekit:7880
-  reverse_proxy /twirp* livekit:7880
+	# LiveKit
+	reverse_proxy /rtc* http://lunarus-livekit-1:7880
+	reverse_proxy /twirp* http://lunarus-livekit-1:7880
 }
