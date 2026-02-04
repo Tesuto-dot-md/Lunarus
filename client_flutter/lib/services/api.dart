@@ -287,22 +287,20 @@ class ApiClient {
     return items.map(TenorGifItem.fromJson).toList();
   }
 
-<<<<<<< HEAD
-    Future<List<ServerInfo>> getServers({required String authToken}) async {
-=======
   Future<List<ServerInfo>> getServers({required String authToken}) async {
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
+  Future<List<ServerInfo>> getServers({required String authToken}) async {
+
     final r = await http.get(
       _u('/servers'),
       headers: {'authorization': 'Bearer $authToken'},
     );
-<<<<<<< HEAD
+
     if (r.statusCode != 200) throw Exception('getServers failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
-=======
+
     _ensureOk(r, 'getServers');
     final j = (_decodeJson(r, 'getServers') as Map).cast<String, dynamic>();
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
+
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(ServerInfo.fromJson).toList();
   }
@@ -312,13 +310,10 @@ class ApiClient {
       _u('/servers/$serverId/channels'),
       headers: {'authorization': 'Bearer $authToken'},
     );
-<<<<<<< HEAD
     if (r.statusCode != 200) throw Exception('getServerChannels failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
-=======
     _ensureOk(r, 'getServerChannels');
     final j = (_decodeJson(r, 'getServerChannels') as Map).cast<String, dynamic>();
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
     final items = (j['items'] as List).cast<Map<String, dynamic>>();
     return items.map(ChannelInfo.fromJson).toList();
   }
@@ -350,13 +345,10 @@ class ApiClient {
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
       body: jsonEncode(payload),
     );
-<<<<<<< HEAD
     if (r.statusCode != 200) throw Exception('patchChannel failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
-=======
     _ensureOk(r, 'patchChannel');
     final j = (_decodeJson(r, 'patchChannel') as Map).cast<String, dynamic>();
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
     return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
@@ -368,13 +360,10 @@ class ApiClient {
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
       body: jsonEncode({'name': name, 'icon': icon}),
     );
-<<<<<<< HEAD
     if (r.statusCode != 200) throw Exception('createServer failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
-=======
     _ensureOk(r, 'createServer');
     final j = (_decodeJson(r, 'createServer') as Map).cast<String, dynamic>();
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
     return ServerInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
@@ -391,13 +380,10 @@ class ApiClient {
       _u('/invites/$code'),
       headers: {'authorization': 'Bearer $authToken'},
     );
-<<<<<<< HEAD
     if (r.statusCode != 200) throw Exception('invite preview failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
-=======
     _ensureOk(r, 'getInvitePreview');
     final j = (_decodeJson(r, 'getInvitePreview') as Map).cast<String, dynamic>();
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
     return InvitePreview.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
@@ -414,13 +400,10 @@ class ApiClient {
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
       body: jsonEncode({}),
     );
-<<<<<<< HEAD
     if (r.statusCode != 200) throw Exception('joinInvite failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
-=======
     _ensureOk(r, 'joinInvite');
     final j = (_decodeJson(r, 'joinInvite') as Map).cast<String, dynamic>();
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
     return ServerInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
@@ -430,13 +413,10 @@ class ApiClient {
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
       body: jsonEncode({'channelId': channelId}),
     );
-<<<<<<< HEAD
     if (r.statusCode != 200) throw Exception('createInvite failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
-=======
     _ensureOk(r, 'createInvite');
     final j = (_decodeJson(r, 'createInvite') as Map).cast<String, dynamic>();
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
     return (j['item'] as Map)['code'].toString();
   }
 
@@ -454,13 +434,10 @@ class ApiClient {
       headers: {'content-type': 'application/json', 'authorization': 'Bearer $authToken'},
       body: jsonEncode({'name': name, 'type': type, 'icon': icon, 'nsfw': nsfw, 'isPrivate': isPrivate}),
     );
-<<<<<<< HEAD
     if (r.statusCode != 200) throw Exception('createChannel failed: ${r.statusCode} ${r.body}');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
-=======
     _ensureOk(r, 'createChannel');
     final j = (_decodeJson(r, 'createChannel') as Map).cast<String, dynamic>();
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
     return ChannelInfo.fromJson((j['item'] as Map).cast<String, dynamic>());
   }
 
@@ -469,11 +446,8 @@ class ApiClient {
       _u('/channels/$channelId'),
       headers: {'authorization': 'Bearer $authToken'},
     );
-<<<<<<< HEAD
     if (r.statusCode != 200) throw Exception('deleteChannel failed: ${r.statusCode} ${r.body}');
-=======
     _ensureOk(r, 'deleteChannel');
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
   }
 
   Future<VoiceJoin> joinVoice({required String authToken, required String room}) async {

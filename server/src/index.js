@@ -45,19 +45,11 @@ const UPLOADS_TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
 fs.mkdirSync(UPLOADS_FILES_DIR, { recursive: true });
 fs.mkdirSync(UPLOADS_TMP_DIR, { recursive: true });
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
+
 // Multer does NOT create the destination directory automatically.
 // If it doesn't exist, uploads will fail with ENOENT.
 fs.mkdirSync(UPLOADS_TMP_DIR, { recursive: true });
 
->>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
->>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
->>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 const upload = multer({ dest: UPLOADS_TMP_DIR });
 app.use('/uploads', express.static(UPLOADS_FILES_DIR));
 
@@ -124,7 +116,7 @@ async function ensureSchema() {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_channels_server_pos ON channels(server_id, position);`);
-<<<<<<< HEAD
+
 
   // Backward-compatible migrations (for older deployments that had a simpler `channels` table)
   // IMPORTANT:
@@ -144,18 +136,11 @@ async function ensureSchema() {
   await pool.query(`UPDATE channels SET server_id = 'lunarus' WHERE server_id IS NULL;`);
   await pool.query(`UPDATE channels SET created_at = $1 WHERE created_at IS NULL;`, [now]);
 
-=======
+
   // Backward-compatible migrations
   await pool.query(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS room TEXT;`);
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
->>>>>>> 9310c4452372660cf801a989142737f2079846a4
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
+
   // Invites
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invites (
@@ -171,17 +156,6 @@ async function ensureSchema() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_invites_server ON invites(server_id);`);
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 9ce6179609ead6f56427da4010dc112a7a7f1ca6
->>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
->>>>>>> 9310c4452372660cf801a989142737f2079846a4
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
   // Messages
   await pool.query(`
     CREATE TABLE IF NOT EXISTS messages (
@@ -329,16 +303,6 @@ app.get('/servers', authMiddleware, async (req, res) => {
   res.json({ items: r.rows });
 });
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
->>>>>>> 9310c4452372660cf801a989142737f2079846a4
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
 // Create a new server (guild)
 app.post('/servers', authMiddleware, async (req, res) => {
   if (!pool) return res.status(500).json({ error: 'db not configured' });
@@ -432,17 +396,6 @@ app.delete('/servers/:serverId', authMiddleware, async (req, res) => {
   res.json({ ok: true });
 });
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 9ce6179609ead6f56427da4010dc112a7a7f1ca6
->>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
->>>>>>> 9310c4452372660cf801a989142737f2079846a4
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
 app.get('/servers/:serverId/channels', authMiddleware, async (req, res) => {
   if (!pool) return res.status(500).json({ error: 'db not configured' });
   const serverId = String(req.params.serverId);
@@ -464,16 +417,6 @@ app.get('/servers/:serverId/channels', authMiddleware, async (req, res) => {
   res.json({ items: r.rows });
 });
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
->>>>>>> 9310c4452372660cf801a989142737f2079846a4
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
 // Create a channel (owner only for now)
 app.post('/servers/:serverId/channels', authMiddleware, async (req, res) => {
   if (!pool) return res.status(500).json({ error: 'db not configured' });
@@ -608,17 +551,6 @@ app.post('/invites/:code/join', authMiddleware, async (req, res) => {
   res.json({ ok: true, item: srv.rows[0] });
 });
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 9ce6179609ead6f56427da4010dc112a7a7f1ca6
->>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
->>>>>>> 9310c4452372660cf801a989142737f2079846a4
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
 // Update channel metadata (icon, flags, name, type)
 app.patch('/channels/:channelId', authMiddleware, async (req, res) => {
   if (!pool) return res.status(500).json({ error: 'db not configured' });
@@ -658,16 +590,6 @@ app.patch('/channels/:channelId', authMiddleware, async (req, res) => {
   res.json({ ok: true, item: r.rows[0] });
 });
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
->>>>>>> 9310c4452372660cf801a989142737f2079846a4
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
 // Delete channel (owner only). If it's a voice channel, also delete its linked chat.
 app.delete('/channels/:channelId', authMiddleware, async (req, res) => {
   if (!pool) return res.status(500).json({ error: 'db not configured' });
@@ -756,17 +678,6 @@ app.post('/invites/:code/join', authMiddleware, async (req, res) => {
   res.json({ ok: true, item: srv.rows[0] });
 });
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 9ce6179609ead6f56427da4010dc112a7a7f1ca6
->>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
->>>>>>> 9310c4452372660cf801a989142737f2079846a4
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
 // ------------------------------------------------------------
 // Discord-like endpoints (compat layer)
 // Many clients expect /channels/:channelId/messages.
@@ -882,30 +793,12 @@ app.post('/messages', authMiddleware, async (req, res) => {
   res.json({ ok: true, item });
 });
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
->>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
+
 // Discord-like channel routes (compatible with client expectations)
 // GET /channels/:channelId/messages?limit=50
 app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const channelId = String(req.params.channelId);
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-=======
+
 // --- Compatibility routes ---
 // Some tools/clients expect Discord-like paths, e.g.:
 //   GET  /channels/:channelId/messages
@@ -913,9 +806,7 @@ app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
 // These routes forward to the existing /messages endpoints.
 app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const channelId = String(req.params.channelId ?? 'general');
->>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
->>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
->>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
+
   const limitRaw = Number(req.query.limit ?? 50);
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, limitRaw)) : 50;
 
@@ -934,13 +825,6 @@ app.get('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   res.json({ items });
 });
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
->>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 // POST /channels/:channelId/messages
 app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const channelId = String(req.params.channelId);
@@ -949,11 +833,7 @@ app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const allowed = new Set(['text', 'image', 'gif']);
   if (!allowed.has(k)) return res.status(400).json({ error: 'bad kind' });
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-=======
+
 app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const channelId = String(req.params.channelId ?? 'general');
   const { content = '', kind = 'text', media = null } = req.body ?? {};
@@ -961,9 +841,6 @@ app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   const k = String(kind || 'text');
   const allowed = new Set(['text', 'image', 'gif']);
   if (!allowed.has(k)) return res.status(400).json({ error: 'bad kind' });
->>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
->>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
->>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
   if (!pool) return res.status(500).json({ error: 'db not configured' });
 
   const msg = {
@@ -988,22 +865,6 @@ app.post('/channels/:channelId/messages', authMiddleware, async (req, res) => {
   res.json({ ok: true, item });
 });
 
-<<<<<<< HEAD
-
-=======
-<<<<<<< HEAD
-
-=======
-<<<<<<< HEAD
-
-=======
->>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
->>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
->>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
->>>>>>> 9ce6179609ead6f56427da4010dc112a7a7f1ca6
->>>>>>> 6e255de509b1d16ef5d1011564c9b716e6c1ffef
->>>>>>> 9310c4452372660cf801a989142737f2079846a4
->>>>>>> b36aa00fb84841fa0ec6b6c6de29c6f67fcdcd4a
 // Загрузка изображения (multipart/form-data, поле: file)
 app.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'missing file' });
@@ -1139,15 +1000,10 @@ const clients = new Set();
 
 const WS_OPEN = 1; // WebSocket.OPEN
 function safeSend(ws, obj) {
-<<<<<<< HEAD
+
   if (ws.readyState === WS_OPEN) ws.send(JSON.stringify(obj));
-=======
-<<<<<<< HEAD
   if (ws.readyState === WS_OPEN) ws.send(JSON.stringify(obj));
-=======
-<<<<<<< HEAD
   if (ws.readyState === WS_OPEN) ws.send(JSON.stringify(obj));
-=======
   // In the `ws` library, OPEN is a constant on the WebSocket class, not the instance.
   // Using `ws.OPEN` breaks sends because it is undefined.
   if (ws.readyState === 1 /* WebSocket.OPEN */) {
@@ -1157,9 +1013,6 @@ function safeSend(ws, obj) {
       // Ignore transient socket errors.
     }
   }
->>>>>>> 894ea6ff02671f77549563e5b245232d3536327a
->>>>>>> 9527b8b752fbe685206f7cdb39f1f288dce5e352
->>>>>>> 098ef00e1850f5c2ab9940727ff31132e9d30409
 }
 
 function broadcast(obj, predicate = () => true) {
