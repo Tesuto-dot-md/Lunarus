@@ -35,10 +35,20 @@ class _HomeScreenState extends State<HomeScreen> {
   // Voice session state
   Room? _voiceRoom;
   String? _voiceRoomName;
+  String? _voiceChannelLabel;
+  String? _voiceChatChannelId;
   bool _voiceConnecting = false;
   String? _voiceError;
   bool _micMuted = false;
   Future<void> Function()? _roomUnsub;
+
+  // Voice-channel embedded chat UI state
+  // Pinned = dock chat panel inside the voice view.
+  // Collapsed = hide chat while keeping the voice view.
+  // Height = resizable bottom-sheet height when not pinned.
+  bool _voiceChatPinned = false;
+  bool _voiceChatCollapsed = false;
+  double _voiceChatHeight = 340.0;
 
   @override
   void initState() {
@@ -111,7 +121,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return pubs.first;
   }
 
-  Future<void> _joinVoice(String roomName) async {
+  Future<void> _joinVoice({required String roomName, required String channelLabel, String? chatChannelId}) async {
     setState(() {
       _voiceConnecting = true;
       _voiceError = null;
@@ -136,6 +146,8 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _voiceRoom = room;
         _voiceRoomName = roomName;
+        _voiceChannelLabel = channelLabel;
+        _voiceChatChannelId = (chatChannelId != null && chatChannelId.trim().isNotEmpty) ? chatChannelId.trim() : null;
       });
     } catch (e) {
       setState(() {
@@ -156,8 +168,66 @@ class _HomeScreenState extends State<HomeScreen> {
     await _voiceRoom?.disconnect();
     _voiceRoom = null;
     _voiceRoomName = null;
+    _voiceChannelLabel = null;
+    _voiceChatChannelId = null;
+    _voiceChatPinned = false;
+    _voiceChatCollapsed = false;
     _micMuted = false;
     _voiceError = null;
+  }
+
+  Future<void> _openVoiceChatSheet() async {
+    final chatId = _voiceChatChannelId;
+    if (chatId == null || chatId.isEmpty) return;
+
+    // If pinned chat is enabled, we don't need a sheet.
+    if (_voiceChatPinned) return;
+
+    final h = MediaQuery.of(context).size.height;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.55,
+          minChildSize: 0.25,
+          maxChildSize: 0.95,
+          builder: (ctx, scrollController) {
+            return Container(
+              height: h,
+              decoration: BoxDecoration(
+                color: Theme.of(ctx).colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(ctx).colorScheme.onSurface.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: ChatScreen(
+                      api: widget.api,
+                      userId: widget.userId,
+                      authToken: widget.authToken,
+                      channelId: chatId,
+                      embedded: true,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _toggleMic() async {
@@ -384,12 +454,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _selectChannel(ChannelInfo c) async {
     // Voice behavior: if already connected to this room, don't reconnect.
     if (c.type == 'voice') {
-      final roomName = c.room ?? c.id;
+      // NOTE: some DB rows may contain empty string for room/linked chat.
+      // Treat empty as null so we don't end up joining backend default 'demo-room'.
+      final roomName = (c.room != null && c.room!.trim().isNotEmpty) ? c.room!.trim() : c.id;
+      final chatId = (c.linkedTextChannelId != null && c.linkedTextChannelId!.trim().isNotEmpty) ? c.linkedTextChannelId!.trim() : null;
       final already = (_voiceRoomName == roomName) && (_voiceConnecting || _voiceRoom?.connectionState == ConnectionState.connected);
       setState(() => _selectedChannel = c);
 
       if (!already) {
-        await _joinVoice(roomName);
+        await _joinVoice(roomName: roomName, channelLabel: c.name, chatChannelId: chatId);
       }
       return;
     }
@@ -646,27 +719,45 @@ class _HomeScreenState extends State<HomeScreen> {
                   : (selected.type == 'forum' ? '🗂️ ${selected.name}' : '#${selected.name}')),
         ),
         Expanded(
-          child: (selected == null)
-              ? const Center(child: Text('Нет каналов'))
-              : (selected.type == 'voice'
-                  ? _VoicePanel(roomName: selected.room ?? selected.id, room: _voiceRoom, connecting: _voiceConnecting, error: _voiceError)
-                  : ChatScreen(
-                      api: widget.api,
-                      authToken: widget.authToken,
-                      userId: widget.userId,
-                      channelId: selected.id,
-                      embedded: true,
-                    )),
-        ),
+  child: (selected == null)
+      ? const Center(child: Text('Нет каналов'))
+      : (selected.type == 'voice'
+          ? _VoiceWithChatPanel(
+              api: widget.api,
+              authToken: widget.authToken,
+              userId: widget.userId,
+              channel: selected,
+              roomName: (_voiceChannelLabel ?? _voiceRoomName ?? selected.name).toString(),
+              room: _voiceRoom,
+              connecting: _voiceConnecting,
+              error: _voiceError,
+              pinned: _voiceChatPinned,
+              collapsed: _voiceChatCollapsed,
+              chatHeight: _voiceChatHeight,
+              onToggleCollapsed: () => setState(() => _voiceChatCollapsed = !_voiceChatCollapsed),
+              onResize: (h) => setState(() => _voiceChatHeight = h),
+            )
+          : ChatScreen(
+              api: widget.api,
+              authToken: widget.authToken,
+              userId: widget.userId,
+              channelId: selected.id,
+              embedded: false,
+            )),
+),
         if (_voiceRoomName != null)
           _VoiceBar(
-            roomName: _voiceRoomName!,
+            roomName: (_voiceChannelLabel ?? _voiceRoomName!).toString(),
+            room: _voiceRoom,
             connecting: _voiceConnecting,
             error: _voiceError,
             micMuted: _micMuted,
-            participantsCount: (_voiceRoom?.remoteParticipants.length ?? 0) + (_voiceRoom?.localParticipant != null ? 1 : 0),
             onToggleMic: _toggleMic,
-            onDisconnect: () async {
+            hasChat: _voiceChatChannelId != null,
+            chatPinned: _voiceChatPinned,
+            onOpenChat: _openVoiceChatSheet,
+	            onTogglePinned: () => setState(() => _voiceChatPinned = !_voiceChatPinned),
+            onLeave: () async {
               await _leaveVoice();
               if (mounted) setState(() {});
             },
@@ -766,6 +857,204 @@ class _TopBar extends StatelessWidget {
   }
 }
 
+
+class _VoiceWithChatPanel extends StatelessWidget {
+  final ApiClient api;
+  final String authToken;
+  final String userId;
+  final ChannelInfo channel;
+  final String? roomName;
+  final Room? room;
+  final bool connecting;
+  final String? error;
+
+  final bool pinned;
+  final bool collapsed;
+  final double chatHeight;
+  final VoidCallback onToggleCollapsed;
+  final ValueChanged<double> onResize;
+
+  const _VoiceWithChatPanel({
+    required this.api,
+    required this.authToken,
+    required this.userId,
+    required this.channel,
+    required this.roomName,
+    required this.room,
+    required this.connecting,
+    required this.error,
+    required this.pinned,
+    required this.collapsed,
+    required this.chatHeight,
+    required this.onToggleCollapsed,
+    required this.onResize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final chatChannelId = channel.linkedTextChannelId;
+
+    return LayoutBuilder(
+      builder: (context, c) {
+        final minH = 160.0;
+        final maxH = (c.maxHeight * 0.7).clamp(240.0, 520.0);
+        final clampedH = chatHeight.clamp(minH, maxH);
+
+        return Column(
+          children: [
+            Expanded(
+              child: _VoicePanel(
+                roomName: (roomName == null || roomName!.isEmpty) ? 'Голосовой' : roomName!,
+                room: room,
+                connecting: connecting,
+                error: error,
+              ),
+            ),
+
+            if (pinned && chatChannelId != null)
+              _PinnedChat(
+                api: api,
+                authToken: authToken,
+                userId: userId,
+                channelId: chatChannelId,
+                collapsed: collapsed,
+                height: clampedH,
+                minHeight: minH,
+                maxHeight: maxH,
+                onToggleCollapsed: onToggleCollapsed,
+                onResize: onResize,
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PinnedChat extends StatelessWidget {
+  final ApiClient api;
+  final String authToken;
+  final String userId;
+  final String channelId;
+
+  final bool collapsed;
+  final double height;
+  final double minHeight;
+  final double maxHeight;
+
+  final VoidCallback onToggleCollapsed;
+  final ValueChanged<double> onResize;
+
+  const _PinnedChat({
+    required this.api,
+    required this.authToken,
+    required this.userId,
+    required this.channelId,
+    required this.collapsed,
+    required this.height,
+    required this.minHeight,
+    required this.maxHeight,
+    required this.onToggleCollapsed,
+    required this.onResize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final border = BorderSide(color: Colors.white.withOpacity(0.08));
+
+    if (collapsed) {
+      return Container(
+        height: 44,
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.25),
+          border: Border(top: border),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.chat_bubble_outline, size: 18),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'Чат (свернут)',
+                style: TextStyle(fontWeight: FontWeight.w600),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            IconButton(
+              tooltip: 'Развернуть',
+              onPressed: onToggleCollapsed,
+              icon: const Icon(Icons.keyboard_arrow_up),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: height,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.25),
+          border: Border(top: border),
+        ),
+        child: Column(
+          children: [
+            // Resize handle + header
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragUpdate: (d) {
+                final next = (height - d.delta.dy).clamp(minHeight, maxHeight);
+                onResize(next);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Icon(Icons.chat_bubble_outline, size: 18),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Чат',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Свернуть',
+                      onPressed: onToggleCollapsed,
+                      icon: const Icon(Icons.keyboard_arrow_down),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 1, thickness: 1),
+            Expanded(
+              child: ChatScreen(
+                api: api,
+                authToken: authToken,
+                userId: userId,
+                channelId: channelId,
+                embedded: true,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _VoicePanel extends StatelessWidget {
   final String roomName;
   final Room? room;
@@ -816,25 +1105,37 @@ class _VoicePanel extends StatelessWidget {
 
 class _VoiceBar extends StatelessWidget {
   final String roomName;
+  final Room? room;
   final bool connecting;
   final String? error;
   final bool micMuted;
-  final int participantsCount;
+  final bool hasChat;
+  final bool chatPinned;
+  final VoidCallback onOpenChat;
+  final VoidCallback onTogglePinned;
   final VoidCallback onToggleMic;
-  final VoidCallback onDisconnect;
+  final VoidCallback onLeave;
 
   const _VoiceBar({
     required this.roomName,
+    required this.room,
     required this.connecting,
     required this.error,
     required this.micMuted,
-    required this.participantsCount,
+    required this.hasChat,
+    required this.chatPinned,
+    required this.onOpenChat,
+    required this.onTogglePinned,
     required this.onToggleMic,
-    required this.onDisconnect,
+    required this.onLeave,
   });
 
   @override
   Widget build(BuildContext context) {
+    final local = room?.localParticipant;
+    final remoteCount = room?.remoteParticipants.length ?? 0;
+    final participantsCount = (local == null ? 0 : 1) + remoteCount;
+
     return Container(
       height: 56,
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -859,6 +1160,18 @@ class _VoiceBar extends StatelessWidget {
               ],
             ),
           ),
+          if (hasChat)
+            IconButton(
+              tooltip: 'Чат голосового канала',
+              onPressed: onOpenChat,
+              icon: const Icon(Icons.chat_bubble_outline, color: Colors.white70),
+            ),
+          if (hasChat)
+            IconButton(
+              tooltip: chatPinned ? 'Открепить чат' : 'Закрепить чат',
+              onPressed: onTogglePinned,
+              icon: Icon(chatPinned ? Icons.push_pin : Icons.push_pin_outlined, color: Colors.white70),
+            ),
           IconButton(
             tooltip: micMuted ? 'Включить микрофон' : 'Выключить микрофон',
             onPressed: onToggleMic,
@@ -866,7 +1179,7 @@ class _VoiceBar extends StatelessWidget {
           ),
           IconButton(
             tooltip: 'Отключиться',
-            onPressed: onDisconnect,
+            onPressed: onLeave,
             icon: const Icon(Icons.call_end, color: Colors.redAccent),
           ),
         ],
